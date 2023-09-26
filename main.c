@@ -8,32 +8,24 @@
 #include <string.h>
 
 int main(void) {
-  /*
-token_t *head = lexer("\
-  u64 main() {\
-          u64 name;\
-          u64 bar = 1+2;\
-          u64 ***REMOVED*** = 10+4*2+5;\
-          u64 ***REMOVED*** = 5+4*2+10;\
-          u64 baz = 1+func();\
-          u64 booze = func()+1;\
-          foo();\
-  }\
-");*/
   token_t *head = lexer("\
+	u64 foo() {\
+		return 5;\
+	}\
 	u64 main() {\
-		u64 foo = 1+2;\
-		u64 bar = 4*2+1;\
-		u64 zoo = 1+4*2;\
-		u64 baz = func();\
-		u64 booze = func()+1;\
-		u64 beer = 1+func()+1;\
+		return 1+foo();\
 	}\
 ");
 
-  //  for (token_t *t = head; t; t = t->next)
-  //    token_printtype(t);
   ast_t *h = lex2ast(head);
-  print_ast(h);
+  printf("section .text\n");
+  printf("_start:\n");
+  printf("call main\n");
+  printf("mov ebx, eax\n");
+  printf("mov eax, 1\n");
+  printf("int 80h\n");
+  printf("\n");
+  compile_ast(h);
+  //  print_ast(h);
   return 0;
 }

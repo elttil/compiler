@@ -38,6 +38,7 @@ struct ast_struct {
 const char *type_to_string(builtin_types t);
 ast_t *lex2ast(token_t *t);
 void print_ast(ast_t *a);
+void compile_ast(ast_t *a);
 
 #ifdef TESTING
 void test_calculation(void);

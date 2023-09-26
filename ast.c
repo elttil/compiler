@@ -27,6 +27,84 @@ void print_expression(ast_t *a) {
   }
 }
 
+void calculate_asm_expression(ast_t *a) {
+  if (a->type == binaryexpression) {
+    calculate_asm_expression(a->left);
+    printf("mov ecx, ebx\n");
+    calculate_asm_expression(a->right);
+    switch (a->operator) {
+    case '+':
+      printf("add ebx, ecx\n");
+      break;
+    case '-':
+      printf("sub ebx, ecx\n");
+      break;
+    case '*':
+      printf("mul ebx, ecx\n");
+      break;
+    default:
+      assert(0);
+      break;
+    }
+  } else if (a->type == literal) {
+    if (a->value_type == (ast_value_type)number) {
+      printf("mov ebx, %ld\n", a->value.number);
+    } else {
+      assert(0 && "unimplemented");
+    }
+  } else if (a->type == function_call) {
+      printf("call %s\n", a->value.string);
+      printf("mov eax, ebx\n");
+  } else {
+    assert(0);
+  }
+}
+
+void compile_ast(ast_t *a) {
+  int stack = 0;
+  for (; a; a = a->next) {
+    switch (a->type) {
+    case function:
+      assert(a->value_type == string);
+      printf("%s:\n", a->value.string);
+      printf("push ebp\n");
+      printf("mov ebp, esp\n");
+      compile_ast(a->children);
+      break;
+    case function_call:
+      assert(a->value_type == string);
+      printf("call %s\n", a->value.string);
+      break;
+    case return_statement: {
+      calculate_asm_expression(a->children);
+      printf("mov eax, ebx\n");
+      printf("pop ebp\n");
+      printf("ret\n\n");
+      break;
+    }
+    case variable: {
+      if (a->children) {
+        calculate_asm_expression(a->children);
+        stack += 0x4;
+        printf("mov (rbp - %x), ebx\n", stack);
+        //        printf("%s %s = ", type_to_string(a->statement_variable_type),
+        //               a->value.string);
+        // printf("%d", calculate_expression(a->children));
+        //        print_expression(a->children);
+        //        printf(";\n");
+      } else {
+        printf("%s %s;\n", type_to_string(a->statement_variable_type),
+               a->value.string);
+      }
+    } break;
+    case noop:
+      break;
+    default:
+      assert(0 && "unimplemented");
+    }
+  }
+}
+
 void print_ast(ast_t *a) {
   for (; a; a = a->next) {
     switch (a->type) {
@@ -236,9 +314,9 @@ ast_t *parse_codeblock(token_t **t_orig) {
         // Check for builtin statement
         assert(t->string_rep);
         if (0 == strcmp(t->string_rep, "return")) {
-          assert(t->next->type == (token_enum)number ||
-                 t->next->type == (token_enum)string);
-          assert(t->next->next->type == semicolon);
+          //          assert(t->next->type == (token_enum)number ||
+          //                 t->next->type == (token_enum)string);
+          //          assert(t->next->next->type == semicolon);
           a->type = return_statement;
           a->next = NULL;
           t = t->next;
@@ -301,7 +379,6 @@ ast_t *lex2ast(token_t *t) {
 }
 
 #ifdef TESTING
-
 int calculate_expression(ast_t *a) {
   if (a->type == binaryexpression) {
     int x = calculate_expression(a->left);
@@ -327,6 +404,7 @@ int calculate_expression(ast_t *a) {
     assert(0);
   }
 }
+
 void test_calculation(void) {
   token_t *head = lexer("\
 	u64 main() {\

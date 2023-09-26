@@ -53,15 +53,19 @@ const char *skip_whitespace(const char *s) {
   return s;
 }
 
+int lexer_isalpha(char c) {
+	return isalpha(c) || c == '_';
+}
+
 const char *parse_token(const char *s, token_t *t) {
   s = skip_whitespace(s);
-  if (isalpha(*s)) {
+  if (lexer_isalpha(*s)) {
     t->type = alpha;
     t->next = NULL;
     t->string_rep = calloc(sizeof(char), 256);
     int i;
     for (i = 0; *s; s++, i++) {
-      if (!isalpha(*s) && !isdigit(*s))
+      if (!lexer_isalpha(*s) && !isdigit(*s))
         break;
       t->string_rep[i] = *s;
     }
