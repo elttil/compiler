@@ -40,7 +40,9 @@ void calculate_asm_expression(ast_t *a) {
       printf("sub ebx, ecx\n");
       break;
     case '*':
-      printf("mul ebx, ecx\n");
+      printf("mov eax, ecx\n");
+      printf("mul ebx\n");
+      printf("mov ebx, eax\n");
       break;
     default:
       assert(0);
@@ -53,8 +55,8 @@ void calculate_asm_expression(ast_t *a) {
       assert(0 && "unimplemented");
     }
   } else if (a->type == function_call) {
-      printf("call %s\n", a->value.string);
-      printf("mov eax, ebx\n");
+    printf("call %s\n", a->value.string);
+    printf("mov ebx, eax\n");
   } else {
     assert(0);
   }
@@ -69,6 +71,8 @@ void compile_ast(ast_t *a) {
       printf("%s:\n", a->value.string);
       printf("push ebp\n");
       printf("mov ebp, esp\n");
+      printf("push ebx\n");
+      printf("push ecx\n");
       compile_ast(a->children);
       break;
     case function_call:
@@ -78,6 +82,8 @@ void compile_ast(ast_t *a) {
     case return_statement: {
       calculate_asm_expression(a->children);
       printf("mov eax, ebx\n");
+      printf("pop ebx\n");
+      printf("pop ecx\n");
       printf("pop ebp\n");
       printf("ret\n\n");
       break;
