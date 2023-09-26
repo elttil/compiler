@@ -29,9 +29,9 @@ void print_expression(ast_t *a) {
 
 void calculate_asm_expression(ast_t *a) {
   if (a->type == binaryexpression) {
-    calculate_asm_expression(a->left);
-    printf("mov ecx, ebx\n");
     calculate_asm_expression(a->right);
+    printf("mov ecx, ebx\n");
+    calculate_asm_expression(a->left);
     switch (a->operator) {
     case '+':
       printf("add ebx, ecx\n");
