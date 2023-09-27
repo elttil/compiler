@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <ast.h>
 #include <ctype.h>
+#include <hashmap/hashmap.h>
 #include <lexer.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,11 +28,11 @@ void print_expression(ast_t *a) {
   }
 }
 
-void calculate_asm_expression(ast_t *a) {
+void calculate_asm_expression(ast_t *a, HashMap *m) {
   if (a->type == binaryexpression) {
-    calculate_asm_expression(a->right);
+    calculate_asm_expression(a->right, m);
     printf("mov ecx, ebx\n");
-    calculate_asm_expression(a->left);
+    calculate_asm_expression(a->left, m);
     switch (a->operator) {
     case '+':
       printf("add ebx, ecx\n");
@@ -57,6 +58,11 @@ void calculate_asm_expression(ast_t *a) {
   } else if (a->type == function_call) {
     printf("call %s\n", a->value.string);
     printf("mov ebx, eax\n");
+  } else if (a->type == variable) {
+    uint64_t *ptr = hashmap_get_entry(m, (char *)a->value.string);
+    assert(ptr);
+    uint64_t stack_location = *ptr;
+    printf("mov ebx, [ebp-0x%lx]\n", stack_location);
   } else {
     assert(0);
   }
@@ -64,15 +70,16 @@ void calculate_asm_expression(ast_t *a) {
 
 void compile_ast(ast_t *a) {
   int stack = 0;
+  HashMap *m = hashmap_create(10);
   for (; a; a = a->next) {
     switch (a->type) {
     case function:
       assert(a->value_type == string);
       printf("%s:\n", a->value.string);
-      printf("push ebp\n");
-      printf("mov ebp, esp\n");
       printf("push ebx\n");
       printf("push ecx\n");
+      printf("mov ebp, esp\n");
+      printf("push ebp\n");
       compile_ast(a->children);
       break;
     case function_call:
@@ -80,19 +87,22 @@ void compile_ast(ast_t *a) {
       printf("call %s\n", a->value.string);
       break;
     case return_statement: {
-      calculate_asm_expression(a->children);
+      calculate_asm_expression(a->children, m);
       printf("mov eax, ebx\n");
+      printf("pop ebp\n");
       printf("pop ebx\n");
       printf("pop ecx\n");
-      printf("pop ebp\n");
       printf("ret\n\n");
       break;
     }
-    case variable: {
+    case variable_declaration: {
+      stack += 0x4;
+      uint64_t *h = malloc(sizeof(uint64_t));
+      *h = stack;
+      hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
       if (a->children) {
-        calculate_asm_expression(a->children);
-        stack += 0x4;
-        printf("mov (rbp - %x), ebx\n", stack);
+        calculate_asm_expression(a->children, m);
+        printf("mov [ebp - 0x%x], ebx\n", stack);
         //        printf("%s %s = ", type_to_string(a->statement_variable_type),
         //               a->value.string);
         // printf("%d", calculate_expression(a->children));
@@ -109,6 +119,7 @@ void compile_ast(ast_t *a) {
       assert(0 && "unimplemented");
     }
   }
+  hashmap_free(m);
 }
 
 void print_ast(ast_t *a) {
@@ -131,7 +142,7 @@ void print_ast(ast_t *a) {
       printf("\n");
       break;
     }
-    case variable: {
+    case variable_declaration: {
       if (a->children) {
         printf("%s %s = ", type_to_string(a->statement_variable_type),
                a->value.string);
@@ -171,16 +182,23 @@ ast_t *parse_primary(token_t **t_orig) {
     r->value.number = parse_number(t->string_rep);
     t = t->next;
   } else if (t->type == alpha) {
-    assert(t->next->type == openparen);
-    r->type = function_call;
-    r->value.string = t->string_rep;
-    r->value_type = string;
+    if (t->next->type == openparen) {
+      r->type = function_call;
+      r->value.string = t->string_rep;
+      r->value_type = string;
 
-    t = t->next;
-    assert(t->next->type == closeparen); // TODO parse params
-    t = t->next;
-    //    assert(t->next->type == semicolon && "Expeceted semicolonn");
-    t = t->next;
+      t = t->next;
+      assert(t->next->type == closeparen); // TODO parse params
+      t = t->next;
+      //    assert(t->next->type == semicolon && "Expeceted semicolonn");
+      t = t->next;
+    } else {
+      // Variable
+      r->type = variable;
+      r->value_type = string;
+      r->value.string = t->string_rep;
+      t = t->next;
+    }
   } else
     assert(0);
   *t_orig = t;
@@ -287,7 +305,7 @@ ast_t *parse_codeblock(token_t **t_orig) {
       int error;
       builtin_types type = parse_type(t->string_rep, &error);
       if (!error) {
-        a->type = variable;
+        a->type = variable_declaration;
         a->children = NULL;
         a->statement_variable_type = type;
         t = t->next;

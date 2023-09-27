@@ -10,10 +10,13 @@
 int main(void) {
   token_t *head = lexer("\
 	u64 foo() {\
-		return 5;\
+		u64 baz = 4;\
+		u64 foo = 4;\
+		u64 bar = foo+4;\
+		return baz+bar;\
 	}\
 	u64 main() {\
-		return 1+foo();\
+		return foo()+2;\
 	}\
 ");
 

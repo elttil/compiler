@@ -13,6 +13,7 @@ typedef enum { num, string } ast_value_type;
 typedef enum {
   function,
   variable,
+  variable_declaration,
   literal,
   binaryexpression,
   function_call,
