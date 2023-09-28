@@ -11,9 +11,11 @@ typedef union {
 typedef enum { num, string } ast_value_type;
 
 typedef enum {
+  if_statement,
   function,
   variable,
   variable_declaration,
+  variable_assignment,
   literal,
   binaryexpression,
   function_call,
@@ -33,6 +35,7 @@ struct ast_struct {
   builtin_types statement_variable_type;
   ast_value_type value_type;
   ast_value value;
+  ast_t *exp;
   ast_t *left;
   ast_t *right;
 };
