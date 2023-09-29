@@ -10,7 +10,7 @@
 int main(void) {
   token_t *head = lexer("\
 	u64 foo() {\
-		if(1) {\
+		if(0) {\
 			return 1;\
 		}\
 		return 2;\

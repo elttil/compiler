@@ -33,17 +33,17 @@ void print_expression(ast_t *a) {
 void calculate_asm_expression(ast_t *a, HashMap *m) {
   if (a->type == binaryexpression) {
     calculate_asm_expression(a->right, m);
-    printf("mov ebx, eax\n");
+    printf("mov ecx, eax\n");
     calculate_asm_expression(a->left, m);
     switch (a->operator) {
     case '+':
-      printf("add eax, ebx\n");
+      printf("add eax, ecx\n");
       break;
     case '-':
-      printf("sub eax, ebx\n");
+      printf("sub eax, ecx\n");
       break;
     case '*':
-      printf("mul ebx\n");
+      printf("mul ecx\n");
       break;
     default:
       assert(0);
@@ -82,9 +82,8 @@ void compile_ast(ast_t *a) {
     case function:
       assert(a->value_type == string);
       printf("%s:\n", a->value.string);
-      printf("push ebx\n");
-      printf("mov ebp, esp\n");
       printf("push ebp\n");
+      printf("mov ebp, esp\n");
       compile_ast(a->children);
       break;
     case if_statement: {
@@ -105,7 +104,6 @@ void compile_ast(ast_t *a) {
     case return_statement: {
       calculate_asm_expression(a->children, m);
       printf("pop ebp\n");
-      printf("pop ebx\n");
       printf("ret\n\n");
       break;
     }
@@ -116,7 +114,7 @@ void compile_ast(ast_t *a) {
       hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
       if (a->children) {
         calculate_asm_expression(a->children, m);
-        printf("mov [ebp - 0x%lx], ebx\n", stack);
+        printf("mov [ebp - 0x%lx], ecx\n", stack);
       } else {
         printf("%s %s;\n", type_to_string(a->statement_variable_type),
                a->value.string);
@@ -129,7 +127,7 @@ void compile_ast(ast_t *a) {
       uint64_t stack = *h;
       assert(a->children);
       calculate_asm_expression(a->children, m);
-      printf("mov [ebp - 0x%lx], ebx\n", stack);
+      printf("mov [ebp - 0x%lx], ecx\n", stack);
       break;
     }
     case noop:
@@ -385,42 +383,42 @@ ast_t *parse_codeblock(token_t **t_orig) {
         int worked = parse_if(&t, a);
         if (!worked) {
           a->type = function_call;
-        a->value.string = t->string_rep;
-        a->value_type = string;
+          a->value.string = t->string_rep;
+          a->value_type = string;
 
-        t = t->next;
-        assert(t->next->type == closeparen); // TODO parse params
-        a->children = NULL;
-        t = t->next;
-        assert(t->next->type == semicolon && "Expeceted semicolonn");
-        t = t->next;
-        t = t->next;
-      }
-    } else {
-      // Check for builtin statement
-      assert(t->string_rep);
-      if (0 == strcmp(t->string_rep, "return")) {
-        //          assert(t->next->type == (token_enum)number ||
-        //                 t->next->type == (token_enum)string);
-        //          assert(t->next->next->type == semicolon);
-        a->type = return_statement;
-        a->next = NULL;
-        t = t->next;
-        a->children = parse_expression(&t);
-        t = t->next;
+          t = t->next;
+          assert(t->next->type == closeparen); // TODO parse params
+          a->children = NULL;
+          t = t->next;
+          assert(t->next->type == semicolon && "Expeceted semicolonn");
+          t = t->next;
+          t = t->next;
+        }
       } else {
-        assert(0 && "Expected builtin statement");
+        // Check for builtin statement
+        assert(t->string_rep);
+        if (0 == strcmp(t->string_rep, "return")) {
+          //          assert(t->next->type == (token_enum)number ||
+          //                 t->next->type == (token_enum)string);
+          //          assert(t->next->next->type == semicolon);
+          a->type = return_statement;
+          a->next = NULL;
+          t = t->next;
+          a->children = parse_expression(&t);
+          t = t->next;
+        } else {
+          assert(0 && "Expected builtin statement");
+        }
       }
     }
+    a->next = malloc(sizeof(ast_t));
+    a = a->next;
+    a->type = noop;
+    a->children = NULL;
   }
-  a->next = malloc(sizeof(ast_t));
-  a = a->next;
-  a->type = noop;
-  a->children = NULL;
-}
-t = t->next;
-*t_orig = t;
-return r;
+  t = t->next;
+  *t_orig = t;
+  return r;
 }
 
 const char *type_to_string(builtin_types t) {
