@@ -19,7 +19,7 @@ int main(void) {
 		return a+b;\
 	}\
 	u64 main() {\
-		return add(genrandnumber(), gennum());\
+		return add(7+genrandnumber(), gennum());\
 	}\
 ");
 

@@ -9,6 +9,7 @@
 
 ast_t *parse_codeblock(token_t **t_orig);
 ast_t *parse_primary(token_t **t_orig);
+ast_t *parse_expression(token_t **t_orig);
 builtin_types parse_type(const char *s, int *error);
 
 struct FunctionVariable {
@@ -228,7 +229,7 @@ ast_t *parse_function_call_arguments(token_t **t_orig) {
   ast_t *r = malloc(sizeof(ast_t));
   ast_t *a = r;
   for (; t->type != closeparen;) {
-    *a = *parse_primary(&t);
+    *a = *parse_expression(&t);
     a->next = NULL;
     if (t->type == closeparen)
       break;
@@ -347,15 +348,18 @@ char type_to_operator_char(token_enum t) {
   }
 }
 
+int is_end_of_expression(token_t *t) {
+  return (t->type == semicolon || t->type == closeparen || t->type == comma);
+}
+
 // Future me is going to hate this code but current me likes it, because
 // somehow it works.
-ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec,
-                          token_enum end_token_type) {
+ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
   token_t *t = *t_orig;
 
   token_t *operator= t;
 
-  if (operator->type == end_token_type)
+  if (is_end_of_expression(operator))
     return lhs;
 
   for (; precedence(operator->type) >= min_prec;) {
@@ -363,14 +367,14 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec,
     t = operator->next;
     ast_t *rhs = parse_primary(&t);
     operator= t;
-    if (operator->type != end_token_type && t->type != end_token_type) {
+    if (!is_end_of_expression(t) && !is_end_of_expression(operator)) {
       for (; precedence(operator->type) >= precedence(op_orig->type);) {
         int is_higher =
             (precedence(operator->type) > precedence(op_orig->type));
-        rhs = parse_expression_1(&t, rhs, precedence(op_orig->type) + is_higher,
-                                 end_token_type);
+        rhs =
+            parse_expression_1(&t, rhs, precedence(op_orig->type) + is_higher);
         operator= t;
-        if (operator->type == end_token_type) {
+        if (operator->type == semicolon || operator->type == closeparen) {
           break;
         }
       }
@@ -381,10 +385,10 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec,
     lhs->type = binaryexpression;
     lhs->right = rhs;
     lhs->operator= type_to_operator_char(op_orig->type);
-    if (t->type == end_token_type) {
+    if (is_end_of_expression(t)) {
       break;
     }
-    if (operator->type == end_token_type) {
+    if (is_end_of_expression(operator)) {
       t = operator;
       break;
     }
@@ -393,8 +397,8 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec,
   return lhs;
 }
 
-ast_t *parse_expression(token_t **t_orig, token_enum end_token_type) {
-  return parse_expression_1(t_orig, parse_primary(t_orig), 0, end_token_type);
+ast_t *parse_expression(token_t **t_orig) {
+  return parse_expression_1(t_orig, parse_primary(t_orig), 0);
 }
 
 builtin_types parse_type(const char *s, int *error) {
@@ -416,7 +420,7 @@ int parse_if(token_t **t_orig, ast_t *a) {
   assert(t->type == openparen);
   t = t->next;
 
-  a->exp = parse_expression(&t, closeparen);
+  a->exp = parse_expression(&t);
   assert(t->type == closeparen);
 
   t = t->next;
@@ -452,7 +456,7 @@ ast_t *parse_codeblock(token_t **t_orig) {
         if (t->type != semicolon) {
           assert(t->type == equals && "Expected equals");
           t = t->next;
-          a->children = parse_expression(&t, semicolon);
+          a->children = parse_expression(&t);
           assert(t->type == semicolon);
           t = t->next;
         } else {
@@ -467,7 +471,7 @@ ast_t *parse_codeblock(token_t **t_orig) {
 
         t = t->next; // equals
         t = t->next; // something
-        a->children = parse_expression(&t, semicolon);
+        a->children = parse_expression(&t);
         assert(t->type == semicolon);
         t = t->next;
       } else if (t->next->type == openparen) {
@@ -495,7 +499,7 @@ ast_t *parse_codeblock(token_t **t_orig) {
           a->type = return_statement;
           a->next = NULL;
           t = t->next;
-          a->children = parse_expression(&t, semicolon);
+          a->children = parse_expression(&t);
           t = t->next;
         } else {
           assert(0 && "Expected builtin statement");
