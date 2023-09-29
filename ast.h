@@ -16,6 +16,7 @@ typedef enum {
   variable,
   variable_declaration,
   variable_assignment,
+  function_argument,
   literal,
   binaryexpression,
   function_call,
@@ -36,13 +37,14 @@ struct ast_struct {
   ast_value_type value_type;
   ast_value value;
   ast_t *exp;
+  ast_t *args;
   ast_t *left;
   ast_t *right;
 };
 const char *type_to_string(builtin_types t);
 ast_t *lex2ast(token_t *t);
 void print_ast(ast_t *a);
-void compile_ast(ast_t *a);
+void compile_ast(ast_t *a, ast_t *parent);
 
 #ifdef TESTING
 void test_calculation(void);

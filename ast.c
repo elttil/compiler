@@ -8,6 +8,13 @@
 #include <string.h>
 
 ast_t *parse_codeblock(token_t **t_orig);
+ast_t *parse_primary(token_t **t_orig);
+builtin_types parse_type(const char *s, int *error);
+
+struct FunctionVariable {
+  uint64_t offset;
+  int is_argument;
+};
 
 void print_expression(ast_t *a) {
   if (a->type == binaryexpression) {
@@ -56,12 +63,25 @@ void calculate_asm_expression(ast_t *a, HashMap *m) {
       assert(0 && "unimplemented");
     }
   } else if (a->type == function_call) {
+    int stack_to_recover = 0;
+    for (ast_t *c = a->children; c; c = c->next) {
+      calculate_asm_expression(c, m);
+      stack_to_recover += 4;
+      printf("push eax\n");
+    }
     printf("call %s\n", a->value.string);
+    printf("add esp, %d\n", stack_to_recover);
   } else if (a->type == variable) {
-    uint64_t *ptr = hashmap_get_entry(m, (char *)a->value.string);
+    struct FunctionVariable *ptr =
+        hashmap_get_entry(m, (char *)a->value.string);
     assert(ptr && "Unknown variable");
-    uint64_t stack_location = *ptr;
-    printf("mov eax, [ebp-0x%lx]\n", stack_location);
+    if (!ptr->is_argument) {
+      uint64_t stack_location = ptr->offset;
+      printf("mov eax, [ebp-0x%lx]\n", stack_location);
+    } else {
+      uint64_t stack_location = ptr->offset;
+      printf("mov eax, [ebp+0x%lx]\n", stack_location);
+    }
   } else {
     assert(0);
   }
@@ -74,9 +94,19 @@ void gen_rand_string(char *s, int l) {
   s[i] = '\0';
 }
 
-void compile_ast(ast_t *a) {
+void compile_ast(ast_t *a, ast_t *parent) {
   uint64_t stack = 0;
   HashMap *m = hashmap_create(10);
+  if (parent && parent->args) {
+    int i = 0x8;
+    for (ast_t *a = parent->args; a; a = a->next) {
+      assert(a->type == function_argument);
+      struct FunctionVariable *h = malloc(sizeof(struct FunctionVariable));
+      *h = (struct FunctionVariable){.offset = i, .is_argument = 1};
+      hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
+      i += 0x4;
+    }
+  }
   for (; a; a = a->next) {
     switch (a->type) {
     case function:
@@ -84,7 +114,7 @@ void compile_ast(ast_t *a) {
       printf("%s:\n", a->value.string);
       printf("push ebp\n");
       printf("mov ebp, esp\n");
-      compile_ast(a->children);
+      compile_ast(a->children, a);
       break;
     case if_statement: {
       calculate_asm_expression(a->exp, m);
@@ -93,7 +123,7 @@ void compile_ast(ast_t *a) {
       gen_rand_string(rand_string, sizeof(rand_string));
       printf("jz _end_if_%s\n", rand_string);
       // TODO: Make a jump
-      compile_ast(a->children);
+      compile_ast(a->children, NULL);
       printf("_end_if_%s:\n", rand_string);
       break;
     }
@@ -109,8 +139,8 @@ void compile_ast(ast_t *a) {
     }
     case variable_declaration: {
       stack += 0x4;
-      uint64_t *h = malloc(sizeof(uint64_t));
-      *h = stack;
+      struct FunctionVariable *h = malloc(sizeof(struct FunctionVariable));
+      *h = (struct FunctionVariable){.offset = stack, .is_argument = 0};
       hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
       if (a->children) {
         calculate_asm_expression(a->children, m);
@@ -188,6 +218,91 @@ uint64_t parse_number(const char *s) {
   return r;
 }
 
+ast_t *parse_function_call_arguments(token_t **t_orig) {
+  token_t *t = *t_orig;
+  if (t->type == closeparen) {
+    t = t->next;
+    *t_orig = t;
+    return NULL;
+  }
+  ast_t *r = malloc(sizeof(ast_t));
+  ast_t *a = r;
+  for (; t->type != closeparen;) {
+    *a = *parse_primary(&t);
+    a->next = NULL;
+    if (t->type == closeparen)
+      break;
+    assert(t->type == comma);
+    t = t->next;
+
+    a->next = malloc(sizeof(ast_t));
+    a = a->next;
+  }
+  t = t->next;
+  *t_orig = t;
+  return r;
+}
+/*
+      int error;
+      builtin_types type = parse_type(t->string_rep, &error);
+      if (!error) {
+        // Implies we are parsing <type> <something>
+        // So it should be a variable declaration.
+        a->type = variable_declaration;
+        a->children = NULL;
+        a->statement_variable_type = type;
+        t = t->next;
+        assert(t->type == alpha && "Expected name after type.");
+        a->value_type = string;
+        a->value.string = t->string_rep;
+        t = t->next;
+        if (t->type != semicolon) {
+          assert(t->type == equals && "Expected equals");
+          t = t->next;
+          a->children = parse_expression(&t);
+          assert(t->type == semicolon);
+          t = t->next;
+        } else {
+          t = t->next;
+        }
+        */
+
+ast_t *parse_function_arguments(token_t **t_orig) {
+  token_t *t = *t_orig;
+  if (t->type == closeparen) {
+    t = t->next;
+    *t_orig = t;
+    return NULL;
+  }
+  ast_t *r = malloc(sizeof(ast_t));
+  ast_t *a = r;
+  for (; t->type != closeparen;) {
+    int error;
+    builtin_types type = parse_type(t->string_rep, &error);
+    assert(!error);
+    a->type = function_argument;
+    a->children = NULL;
+    a->statement_variable_type = type;
+    t = t->next;
+    assert(t->type == alpha && "Expected name after type.");
+    a->value_type = string;
+    a->value.string = t->string_rep;
+    t = t->next;
+
+    a->next = NULL;
+    if (t->type == closeparen)
+      break;
+    assert(t->type == comma);
+    t = t->next;
+
+    a->next = malloc(sizeof(ast_t));
+    a = a->next;
+  }
+  t = t->next;
+  *t_orig = t;
+  return r;
+}
+
 ast_t *parse_primary(token_t **t_orig) {
   token_t *t = *t_orig;
   ast_t *r = malloc(sizeof(ast_t));
@@ -205,10 +320,9 @@ ast_t *parse_primary(token_t **t_orig) {
       r->value_type = string;
 
       t = t->next;
-      assert(t->next->type == closeparen); // TODO parse params
       t = t->next;
+      r->children = parse_function_call_arguments(&t);
       //    assert(t->next->type == semicolon && "Expeceted semicolonn");
-      t = t->next;
     } else {
       // Variable
       r->type = variable;
@@ -216,8 +330,10 @@ ast_t *parse_primary(token_t **t_orig) {
       r->value.string = t->string_rep;
       t = t->next;
     }
-  } else
+  } else {
+    printf("t->type: %x\n", t->type);
     assert(0);
+  }
   *t_orig = t;
   return r;
 }
@@ -445,11 +561,14 @@ ast_t *lex2ast(token_t *t) {
 
       a->value_type = string;
       a->value.string = t->string_rep;
-
-      t = t->next->next;
-
-      assert(t->type == closeparen && "not implemented");
       t = t->next;
+      t = t->next;
+      a->args = parse_function_arguments(&t);
+
+      // t = t->next;
+
+      // assert(t->type == closeparen && "not implemented");
+      //      t = t->next;
       assert(t->type == openbracket && "srror");
       t = t->next;
       a->children = parse_codeblock(&t);
@@ -499,6 +618,7 @@ void test_calculation(void) {
 		u64 booze = func()+1;\
 		u64 bin = 1+func();\
 		u64 fooze = 1+booze;\
+		u64 ***REMOVED*** = ooooaaa(1);\
 	}");
   ast_t *h = lex2ast(head);
   assert(h->type == function);
@@ -550,5 +670,17 @@ void test_calculation(void) {
   assert(f->type == binaryexpression);
   assert(f->left->type == literal);
   assert(f->right->type == variable);
+
+  h = h->next;
+  c = h;
+  assert(c->type == variable_declaration);
+  c = c->children;
+  assert(c->type == function_call);
+  printf("call to: %s\n", c->value.string);
+  f = c->children;
+  assert(f);
+  assert(f->type == literal);
+  assert(f->value_type == (ast_value_type)number);
+  assert(f->value.number == 1);
 }
 #endif // TESTING

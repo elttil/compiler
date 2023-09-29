@@ -9,14 +9,17 @@
 
 int main(void) {
   token_t *head = lexer("\
-	u64 foo() {\
-		if(0) {\
-			return 1;\
-		}\
-		return 2;\
+        u64 genrandnumber() {\
+		return 3;\
+	}\
+        u64 gennum() {\
+		return 10;\
+	}\
+	u64 add(u64 a, u64 b) {\
+		return a+b;\
 	}\
 	u64 main() {\
-		return foo();\
+		return add(genrandnumber(), gennum());\
 	}\
 ");
 
@@ -28,7 +31,7 @@ int main(void) {
   printf("mov eax, 1\n");
   printf("int 80h\n");
   printf("\n");
-  compile_ast(h);
+  compile_ast(h, NULL);
   //  print_ast(h);
   return 0;
 }

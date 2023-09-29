@@ -41,6 +41,9 @@ void token_printtype(token_t *t) {
   case multiply:
     printf("multiply\n");
     break;
+  case comma:
+    printf("comma\n");
+    break;
   case end:
     printf("LEXER END\n");
     break;
@@ -53,9 +56,7 @@ const char *skip_whitespace(const char *s) {
   return s;
 }
 
-int lexer_isalpha(char c) {
-	return isalpha(c) || c == '_';
-}
+int lexer_isalpha(char c) { return isalpha(c) || c == '_'; }
 
 const char *parse_token(const char *s, token_t *t) {
   s = skip_whitespace(s);
@@ -113,6 +114,14 @@ const char *parse_token(const char *s, token_t *t) {
     t->next = NULL;
     t->string_rep = calloc(sizeof(char), 2);
     strcpy(t->string_rep, ";");
+    return s;
+  }
+  if (',' == *s) {
+    s++;
+    t->type = comma;
+    t->next = NULL;
+    t->string_rep = calloc(sizeof(char), 2);
+    strcpy(t->string_rep, ",");
     return s;
   }
   if ('+' == *s) {

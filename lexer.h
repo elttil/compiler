@@ -10,6 +10,7 @@ typedef enum {
   minus,
   multiply,
 
+  comma,
   openparen,
   closeparen,
   openbracket,
