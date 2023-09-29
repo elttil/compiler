@@ -242,30 +242,6 @@ ast_t *parse_function_call_arguments(token_t **t_orig) {
   *t_orig = t;
   return r;
 }
-/*
-      int error;
-      builtin_types type = parse_type(t->string_rep, &error);
-      if (!error) {
-        // Implies we are parsing <type> <something>
-        // So it should be a variable declaration.
-        a->type = variable_declaration;
-        a->children = NULL;
-        a->statement_variable_type = type;
-        t = t->next;
-        assert(t->type == alpha && "Expected name after type.");
-        a->value_type = string;
-        a->value.string = t->string_rep;
-        t = t->next;
-        if (t->type != semicolon) {
-          assert(t->type == equals && "Expected equals");
-          t = t->next;
-          a->children = parse_expression(&t);
-          assert(t->type == semicolon);
-          t = t->next;
-        } else {
-          t = t->next;
-        }
-        */
 
 ast_t *parse_function_arguments(token_t **t_orig) {
   token_t *t = *t_orig;
@@ -373,12 +349,13 @@ char type_to_operator_char(token_enum t) {
 
 // Future me is going to hate this code but current me likes it, because
 // somehow it works.
-ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
+ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec,
+                          token_enum end_token_type) {
   token_t *t = *t_orig;
 
   token_t *operator= t;
 
-  if (operator->type == semicolon || operator->type == closeparen)
+  if (operator->type == end_token_type)
     return lhs;
 
   for (; precedence(operator->type) >= min_prec;) {
@@ -386,16 +363,14 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
     t = operator->next;
     ast_t *rhs = parse_primary(&t);
     operator= t;
-    if (operator->type != semicolon && t->type != semicolon &&
-        t->type != closeparen &&
-        operator->type != closeparen) {
+    if (operator->type != end_token_type && t->type != end_token_type) {
       for (; precedence(operator->type) >= precedence(op_orig->type);) {
         int is_higher =
             (precedence(operator->type) > precedence(op_orig->type));
-        rhs =
-            parse_expression_1(&t, rhs, precedence(op_orig->type) + is_higher);
+        rhs = parse_expression_1(&t, rhs, precedence(op_orig->type) + is_higher,
+                                 end_token_type);
         operator= t;
-        if (operator->type == semicolon || operator->type == closeparen) {
+        if (operator->type == end_token_type) {
           break;
         }
       }
@@ -406,10 +381,10 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
     lhs->type = binaryexpression;
     lhs->right = rhs;
     lhs->operator= type_to_operator_char(op_orig->type);
-    if (t->type == semicolon || operator->type == closeparen) {
+    if (t->type == end_token_type) {
       break;
     }
-    if (operator->type == semicolon || operator->type == closeparen) {
+    if (operator->type == end_token_type) {
       t = operator;
       break;
     }
@@ -418,8 +393,8 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
   return lhs;
 }
 
-ast_t *parse_expression(token_t **t_orig) {
-  return parse_expression_1(t_orig, parse_primary(t_orig), 0);
+ast_t *parse_expression(token_t **t_orig, token_enum end_token_type) {
+  return parse_expression_1(t_orig, parse_primary(t_orig), 0, end_token_type);
 }
 
 builtin_types parse_type(const char *s, int *error) {
@@ -441,7 +416,7 @@ int parse_if(token_t **t_orig, ast_t *a) {
   assert(t->type == openparen);
   t = t->next;
 
-  a->exp = parse_expression(&t);
+  a->exp = parse_expression(&t, closeparen);
   assert(t->type == closeparen);
 
   t = t->next;
@@ -477,7 +452,7 @@ ast_t *parse_codeblock(token_t **t_orig) {
         if (t->type != semicolon) {
           assert(t->type == equals && "Expected equals");
           t = t->next;
-          a->children = parse_expression(&t);
+          a->children = parse_expression(&t, semicolon);
           assert(t->type == semicolon);
           t = t->next;
         } else {
@@ -492,7 +467,7 @@ ast_t *parse_codeblock(token_t **t_orig) {
 
         t = t->next; // equals
         t = t->next; // something
-        a->children = parse_expression(&t);
+        a->children = parse_expression(&t, semicolon);
         assert(t->type == semicolon);
         t = t->next;
       } else if (t->next->type == openparen) {
@@ -520,7 +495,7 @@ ast_t *parse_codeblock(token_t **t_orig) {
           a->type = return_statement;
           a->next = NULL;
           t = t->next;
-          a->children = parse_expression(&t);
+          a->children = parse_expression(&t, semicolon);
           t = t->next;
         } else {
           assert(0 && "Expected builtin statement");
@@ -676,7 +651,6 @@ void test_calculation(void) {
   assert(c->type == variable_declaration);
   c = c->children;
   assert(c->type == function_call);
-  printf("call to: %s\n", c->value.string);
   f = c->children;
   assert(f);
   assert(f->type == literal);
