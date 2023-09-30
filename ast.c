@@ -9,12 +9,36 @@
 ast_t *parse_codeblock(token_t **t_orig);
 ast_t *parse_primary(token_t **t_orig);
 ast_t *parse_expression(token_t **t_orig);
-builtin_types parse_type(const char *s, int *error);
+struct BuiltinType parse_type(const char *s, int *error);
 
 struct FunctionVariable {
   uint64_t offset;
   int is_argument;
 };
+
+const struct BuiltinType u64 = {
+    .name = "u64",
+    .byte_size = 8,
+};
+
+const struct BuiltinType u32 = {
+    .name = "u32",
+    .byte_size = 4,
+};
+
+struct BuiltinType types[] = {
+    u64,
+    u32,
+};
+
+void gen_rand_string(char *s, int l) {
+  int i = 0;
+  for (; i < l - 1; i++)
+    s[i] = (rand() % 15) + 'A';
+  s[i] = '\0';
+}
+
+const char *type_to_string(struct BuiltinType t) { return t.name; }
 
 void print_expression(ast_t *a) {
   if (a->type == binaryexpression) {
@@ -45,11 +69,13 @@ int builtin_functions(const char *function, ast_t *arguments) {
   return 0;
 }
 
-void calculate_asm_expression(ast_t *a, HashMap *m) {
+void calculate_asm_expression(ast_t *a, HashMap *m,
+                              struct CompiledData **data_orig) {
+  struct CompiledData *data = *data_orig;
   if (a->type == binaryexpression) {
-    calculate_asm_expression(a->right, m);
+    calculate_asm_expression(a->right, m, &data);
     printf("mov ecx, eax\n");
-    calculate_asm_expression(a->left, m);
+    calculate_asm_expression(a->left, m, &data);
     switch (a->operator) {
     case '+':
       printf("add eax, ecx\n");
@@ -65,8 +91,21 @@ void calculate_asm_expression(ast_t *a, HashMap *m) {
       break;
     }
   } else if (a->type == literal) {
-    if (a->value_type == (ast_value_type)number) {
+    if (a->value_type == num) {
       printf("mov eax, %ld\n", a->value.number);
+    } else if (a->value_type == string) {
+      if (!data) {
+        data = malloc(sizeof(struct CompiledData));
+      } else {
+        data->next = malloc(sizeof(struct CompiledData));
+        data = data->next;
+      }
+      data->name = malloc(10);
+      gen_rand_string(data->name, 10);
+      printf("mov eax, %s\n", data->name);
+      data->buffer_size = strlen(a->value.string);
+      data->buffer = malloc(data->buffer_size + 1);
+      strcpy(data->buffer, a->value.string);
     } else {
       assert(0 && "unimplemented");
     }
@@ -79,7 +118,7 @@ void calculate_asm_expression(ast_t *a, HashMap *m) {
     }
     i--;
     for (; i >= 0; i--) {
-      calculate_asm_expression(arguments[i], m);
+      calculate_asm_expression(arguments[i], m, &data);
       stack_to_recover += 4;
       printf("push eax\n");
     }
@@ -99,16 +138,12 @@ void calculate_asm_expression(ast_t *a, HashMap *m) {
   } else {
     assert(0);
   }
+  *data_orig = data;
 }
 
-void gen_rand_string(char *s, int l) {
-  int i = 0;
-  for (; i < l - 1; i++)
-    s[i] = (rand() % 15) + 'A';
-  s[i] = '\0';
-}
-
-void compile_ast(ast_t *a, ast_t *parent, HashMap *m) {
+void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
+                 struct CompiledData **data_orig) {
+  struct CompiledData *data = *data_orig;
   uint64_t stack = 0;
   if (!m)
     m = hashmap_create(10);
@@ -129,16 +164,16 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m) {
       printf("%s:\n", a->value.string);
       printf("push ebp\n");
       printf("mov ebp, esp\n");
-      compile_ast(a->children, a, NULL);
+      compile_ast(a->children, a, NULL, &data);
       break;
     case if_statement: {
-      calculate_asm_expression(a->exp, m);
+      calculate_asm_expression(a->exp, m, &data);
       printf("and eax, eax\n");
       char rand_string[10];
       gen_rand_string(rand_string, sizeof(rand_string));
       printf("jz _end_if_%s\n", rand_string);
       // TODO: Make a jump
-      compile_ast(a->children, NULL, m);
+      compile_ast(a->children, NULL, m, &data);
       printf("_end_if_%s:\n", rand_string);
       break;
     }
@@ -146,11 +181,24 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m) {
       assert(a->value_type == string);
       int rc = builtin_functions(a->value.string, a->children);
       if (!rc) {
+        int stack_to_recover = 0;
+        ast_t *arguments[10];
+        int i = 0;
+        for (ast_t *c = a->children; c; c = c->next, i++) {
+          arguments[i] = c;
+        }
+        i--;
+        for (; i >= 0; i--) {
+          calculate_asm_expression(arguments[i], m, &data);
+          stack_to_recover += 4;
+          printf("push eax\n");
+        }
         printf("call %s\n", a->value.string);
+        printf("add esp, %d\n", stack_to_recover);
       }
       break;
     case return_statement: {
-      calculate_asm_expression(a->children, m);
+      calculate_asm_expression(a->children, m, &data);
       printf("pop ebp\n");
       printf("ret\n\n");
       break;
@@ -161,7 +209,7 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m) {
       *h = (struct FunctionVariable){.offset = stack, .is_argument = 0};
       hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
       if (a->children) {
-        calculate_asm_expression(a->children, m);
+        calculate_asm_expression(a->children, m, &data);
         printf("mov [ebp - 0x%lx], ecx\n", stack);
       } else {
         printf("%s %s;\n", type_to_string(a->statement_variable_type),
@@ -174,7 +222,7 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m) {
       assert(h && "Undefined variable.");
       uint64_t stack = *h;
       assert(a->children);
-      calculate_asm_expression(a->children, m);
+      calculate_asm_expression(a->children, m, &data);
       printf("mov [ebp - 0x%lx], ecx\n", stack);
       break;
     }
@@ -184,6 +232,7 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m) {
       assert(0 && "unimplemented");
     }
   }
+  *data_orig = data;
 }
 
 void print_ast(ast_t *a) {
@@ -246,7 +295,6 @@ ast_t *parse_function_call_arguments(token_t **t_orig) {
   ast_t *a = r;
   for (; t->type != closeparen;) {
     *a = *parse_expression(&t);
-    a->next = NULL;
     if (t->type == closeparen)
       break;
     assert(t->type == comma);
@@ -255,6 +303,7 @@ ast_t *parse_function_call_arguments(token_t **t_orig) {
     a->next = malloc(sizeof(ast_t));
     a = a->next;
   }
+  a->next = NULL;
   t = t->next;
   *t_orig = t;
   return r;
@@ -271,7 +320,7 @@ ast_t *parse_function_arguments(token_t **t_orig) {
   ast_t *a = r;
   for (; t->type != closeparen;) {
     int error;
-    builtin_types type = parse_type(t->string_rep, &error);
+    struct BuiltinType type = parse_type(t->string_rep, &error);
     assert(!error);
     a->type = function_argument;
     a->children = NULL;
@@ -428,10 +477,13 @@ ast_t *parse_expression(token_t **t_orig) {
   return parse_expression_1(t_orig, parse_primary(t_orig), 0);
 }
 
-builtin_types parse_type(const char *s, int *error) {
+struct BuiltinType parse_type(const char *s, int *error) {
   *error = 0;
-  if (0 == strcmp(s, "u64"))
-    return u64;
+  for (int i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+    if (0 == strcmp(s, types[i].name)) {
+      return types[i];
+    }
+  }
   *error = 1;
   return u64;
 }
@@ -468,7 +520,7 @@ ast_t *parse_codeblock(token_t **t_orig) {
     if (t->type == alpha) {
       // Check for variable
       int error;
-      builtin_types type = parse_type(t->string_rep, &error);
+      struct BuiltinType type = parse_type(t->string_rep, &error);
       if (!error) {
         // Implies we are parsing <type> <something>
         // So it should be a variable declaration.
@@ -541,12 +593,6 @@ ast_t *parse_codeblock(token_t **t_orig) {
   t = t->next;
   *t_orig = t;
   return r;
-}
-
-const char *type_to_string(builtin_types t) {
-  if (t == u64)
-    return "u64";
-  return "UNKNOWN";
 }
 
 ast_t *lex2ast(token_t *t) {
@@ -624,7 +670,7 @@ void test_calculation(void) {
 		u64 booze = func()+1;\
 		u64 bin = 1+func();\
 		u64 fooze = 1+booze;\
-		u64 ***REMOVED*** = ooooaaa(1);\
+		u64 rand = ooooaaa(1);\
 	}");
   ast_t *h = lex2ast(head);
   assert(h->type == function);

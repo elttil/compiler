@@ -22,7 +22,13 @@ int main(void) {
 
   ast_t *h = lex2ast(head);
 
-  compile_ast(h, NULL, NULL);
+  struct CompiledData *data;
+  compile_ast(h, NULL, NULL, &data);
+
+  printf("section .data\n");
+  for (; data; data = data->next) {
+    printf("%s: db '%s'\n", data->name, data->buffer);
+  }
   //  print_ast(h);
   return 0;
 }

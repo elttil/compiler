@@ -1,9 +1,9 @@
 typedef struct ast_struct ast_t;
 #ifndef AST_H
 #define AST_H
+#include <hashmap/hashmap.h>
 #include <lexer.h>
 #include <stdint.h>
-#include <hashmap/hashmap.h>
 typedef union {
   const char *string;
   uint64_t number;
@@ -25,16 +25,24 @@ typedef enum {
   noop,
 } ast_enum;
 
-typedef enum {
-  u64,
-} builtin_types;
+struct BuiltinType {
+  const char *name;
+  uint8_t byte_size;
+};
+
+struct CompiledData {
+  char *name;
+  char *buffer;
+  size_t buffer_size;
+  struct CompiledData *next;
+};
 
 struct ast_struct {
   ast_enum type;
   ast_t *children;
   ast_t *next;
   char operator;
-  builtin_types statement_variable_type;
+  struct BuiltinType statement_variable_type;
   ast_value_type value_type;
   ast_value value;
   ast_t *exp;
@@ -42,10 +50,12 @@ struct ast_struct {
   ast_t *left;
   ast_t *right;
 };
-const char *type_to_string(builtin_types t);
+
+const char *type_to_string(struct BuiltinType t);
 ast_t *lex2ast(token_t *t);
 void print_ast(ast_t *a);
-void compile_ast(ast_t *a, ast_t *parent, HashMap *m);
+void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
+                 struct CompiledData **data_orig);
 
 #ifdef TESTING
 void test_calculation(void);
