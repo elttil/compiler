@@ -22,7 +22,7 @@ int main(void) {
 
   ast_t *h = lex2ast(head);
 
-  compile_ast(h, NULL);
+  compile_ast(h, NULL, NULL);
   //  print_ast(h);
   return 0;
 }

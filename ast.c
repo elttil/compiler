@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <ast.h>
 #include <ctype.h>
-#include <hashmap/hashmap.h>
 #include <lexer.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,8 +72,14 @@ void calculate_asm_expression(ast_t *a, HashMap *m) {
     }
   } else if (a->type == function_call) {
     int stack_to_recover = 0;
-    for (ast_t *c = a->children; c; c = c->next) {
-      calculate_asm_expression(c, m);
+    ast_t *arguments[10];
+    int i = 0;
+    for (ast_t *c = a->children; c; c = c->next, i++) {
+      arguments[i] = c;
+    }
+    i--;
+    for (; i >= 0; i--) {
+      calculate_asm_expression(arguments[i], m);
       stack_to_recover += 4;
       printf("push eax\n");
     }
@@ -103,9 +108,10 @@ void gen_rand_string(char *s, int l) {
   s[i] = '\0';
 }
 
-void compile_ast(ast_t *a, ast_t *parent) {
+void compile_ast(ast_t *a, ast_t *parent, HashMap *m) {
   uint64_t stack = 0;
-  HashMap *m = hashmap_create(10);
+  if (!m)
+    m = hashmap_create(10);
   if (parent && parent->args) {
     int i = 0x8;
     for (ast_t *a = parent->args; a; a = a->next) {
@@ -123,7 +129,7 @@ void compile_ast(ast_t *a, ast_t *parent) {
       printf("%s:\n", a->value.string);
       printf("push ebp\n");
       printf("mov ebp, esp\n");
-      compile_ast(a->children, a);
+      compile_ast(a->children, a, NULL);
       break;
     case if_statement: {
       calculate_asm_expression(a->exp, m);
@@ -132,7 +138,7 @@ void compile_ast(ast_t *a, ast_t *parent) {
       gen_rand_string(rand_string, sizeof(rand_string));
       printf("jz _end_if_%s\n", rand_string);
       // TODO: Make a jump
-      compile_ast(a->children, NULL);
+      compile_ast(a->children, NULL, m);
       printf("_end_if_%s:\n", rand_string);
       break;
     }
@@ -178,7 +184,6 @@ void compile_ast(ast_t *a, ast_t *parent) {
       assert(0 && "unimplemented");
     }
   }
-  hashmap_free(m);
 }
 
 void print_ast(ast_t *a) {
