@@ -44,6 +44,9 @@ void token_printtype(token_t *t) {
   case comma:
     printf("comma\n");
     break;
+  case lexer_string:
+    printf("string\n");
+    break;
   case end:
     printf("LEXER END\n");
     break;
@@ -71,6 +74,21 @@ const char *parse_token(const char *s, token_t *t) {
       t->string_rep[i] = *s;
     }
     t->string_rep[i] = '\0';
+    return s;
+  }
+  if ('"' == *s) {
+    s++;
+    t->type = lexer_string;
+    t->next = NULL;
+    t->string_rep = calloc(sizeof(char), 256);
+    int i;
+    for (i = 0; *s; s++, i++) {
+      if ('"' == *s)
+        break;
+      t->string_rep[i] = *s;
+    }
+    t->string_rep[i] = '\0';
+    s++;
     return s;
   }
   if ('(' == *s) {

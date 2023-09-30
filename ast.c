@@ -38,6 +38,14 @@ void print_expression(ast_t *a) {
   }
 }
 
+int builtin_functions(const char *function, ast_t *arguments) {
+  if (0 == strcmp(function, "asm")) {
+    printf("%s", arguments->value.string);
+    return 1;
+  }
+  return 0;
+}
+
 void calculate_asm_expression(ast_t *a, HashMap *m) {
   if (a->type == binaryexpression) {
     calculate_asm_expression(a->right, m);
@@ -130,7 +138,10 @@ void compile_ast(ast_t *a, ast_t *parent) {
     }
     case function_call:
       assert(a->value_type == string);
-      printf("call %s\n", a->value.string);
+      int rc = builtin_functions(a->value.string, a->children);
+      if (!rc) {
+        printf("call %s\n", a->value.string);
+      }
       break;
     case return_statement: {
       calculate_asm_expression(a->children, m);
@@ -307,6 +318,11 @@ ast_t *parse_primary(token_t **t_orig) {
       r->value.string = t->string_rep;
       t = t->next;
     }
+  } else if (t->type == lexer_string) {
+    r->type = literal;
+    r->value_type = string;
+    r->value.string = t->string_rep;
+    t = t->next;
   } else {
     printf("t->type: %x\n", t->type);
     assert(0);
@@ -315,8 +331,8 @@ ast_t *parse_primary(token_t **t_orig) {
   return r;
 }
 
-int precedence(token_enum operator) {
-  switch (operator) {
+int precedence(token_t *t) {
+  switch (t->type) {
   case minus:
   case plus:
     return 0;
@@ -326,8 +342,7 @@ int precedence(token_enum operator) {
     break;
   default:
     printf("Got type: ");
-    token_t t = (struct token_struct){.type = operator};
-    token_printtype(&t);
+    token_printtype(t);
     printf("\n");
     assert(0);
     break;
@@ -361,17 +376,15 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
   if (is_end_of_expression(operator))
     return lhs;
 
-  for (; precedence(operator->type) >= min_prec;) {
+  for (; precedence(operator) >= min_prec;) {
     token_t *op_orig = operator;
     t = operator->next;
     ast_t *rhs = parse_primary(&t);
     operator= t;
     if (!is_end_of_expression(t) && !is_end_of_expression(operator)) {
-      for (; precedence(operator->type) >= precedence(op_orig->type);) {
-        int is_higher =
-            (precedence(operator->type) > precedence(op_orig->type));
-        rhs =
-            parse_expression_1(&t, rhs, precedence(op_orig->type) + is_higher);
+      for (; precedence(operator) >= precedence(op_orig);) {
+        int is_higher = (precedence(operator) > precedence(op_orig));
+        rhs = parse_expression_1(&t, rhs, precedence(op_orig) + is_higher);
         operator= t;
         if (is_end_of_expression(operator)) {
           break;
@@ -397,6 +410,16 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
 }
 
 ast_t *parse_expression(token_t **t_orig) {
+  token_t *t = *t_orig;
+  if (t->type == lexer_string) {
+    ast_t *r = malloc(sizeof(ast_t));
+    r->type = literal;
+    r->value_type = string;
+    r->value.string = t->string_rep;
+    t = t->next;
+    *t_orig = t;
+    return r;
+  }
   return parse_expression_1(t_orig, parse_primary(t_orig), 0);
 }
 
@@ -481,11 +504,11 @@ ast_t *parse_codeblock(token_t **t_orig) {
           a->value_type = string;
 
           t = t->next;
-          assert(t->next->type == closeparen); // TODO parse params
-          a->children = NULL;
           t = t->next;
-          assert(t->next->type == semicolon && "Expeceted semicolonn");
-          t = t->next;
+          a->children = parse_function_call_arguments(&t);
+          // a->children = NULL;
+          // t = t->next;
+          assert(t->type == semicolon && "Expeceted semicolonn");
           t = t->next;
         }
       } else {
