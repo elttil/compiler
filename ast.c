@@ -356,7 +356,6 @@ int is_end_of_expression(token_t *t) {
 // somehow it works.
 ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
   token_t *t = *t_orig;
-
   token_t *operator= t;
 
   if (is_end_of_expression(operator))
@@ -374,7 +373,7 @@ ast_t *parse_expression_1(token_t **t_orig, ast_t *lhs, int min_prec) {
         rhs =
             parse_expression_1(&t, rhs, precedence(op_orig->type) + is_higher);
         operator= t;
-        if (operator->type == semicolon || operator->type == closeparen) {
+        if (is_end_of_expression(operator)) {
           break;
         }
       }
