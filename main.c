@@ -40,6 +40,5 @@ int main(int argc, char **argv) {
   for (; data; data = data->prev) {
     printf("%s: db '%s'\n", data->name, data->buffer);
   }
-  //  print_ast(h);
   return 0;
 }

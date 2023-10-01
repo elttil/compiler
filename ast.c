@@ -285,7 +285,6 @@ void print_ast(ast_t *a) {
       if (a->children) {
         printf("%s %s = ", type_to_string(a->statement_variable_type),
                a->value.string);
-        // printf("%d", calculate_expression(a->children));
         print_expression(a->children);
         printf(";\n");
       } else {
@@ -390,9 +389,7 @@ ast_t *parse_primary(token_t **t_orig) {
       t = t->next;
       t = t->next;
       r->children = parse_function_call_arguments(&t);
-      //    assert(t->next->type == semicolon && "Expeceted semicolonn");
     } else {
-      // Variable
       r->type = variable;
       r->value_type = string;
       r->value.string = t->string_rep;
@@ -589,8 +586,6 @@ ast_t *parse_codeblock(token_t **t_orig) {
           t = t->next;
           t = t->next;
           a->children = parse_function_call_arguments(&t);
-          // a->children = NULL;
-          // t = t->next;
           assert(t->type == semicolon && "Expeceted semicolonn");
           t = t->next;
         }
@@ -598,9 +593,6 @@ ast_t *parse_codeblock(token_t **t_orig) {
         // Check for builtin statement
         assert(t->string_rep);
         if (0 == strcmp(t->string_rep, "return")) {
-          //          assert(t->next->type == (token_enum)number ||
-          //                 t->next->type == (token_enum)string);
-          //          assert(t->next->next->type == semicolon);
           a->type = return_statement;
           a->next = NULL;
           t = t->next;
@@ -643,10 +635,6 @@ ast_t *lex2ast(token_t *t) {
       t = t->next;
       a->args = parse_function_arguments(&t);
 
-      // t = t->next;
-
-      // assert(t->type == closeparen && "not implemented");
-      //      t = t->next;
       assert(t->type == openbracket && "srror");
       t = t->next;
       a->children = parse_codeblock(&t);
