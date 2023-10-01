@@ -38,7 +38,11 @@ int main(int argc, char **argv) {
 
   printf("section .data\n");
   for (; data; data = data->prev) {
-    printf("%s: db '%s'\n", data->name, data->buffer);
+    printf("%s: db ", data->name);
+    for (char *b = data->buffer; *b; b++) {
+      printf("0x%x, ", *b);
+    }
+    printf("\n");
   }
   return 0;
 }
