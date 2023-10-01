@@ -26,9 +26,15 @@ const struct BuiltinType u32 = {
     .byte_size = 4,
 };
 
+const struct BuiltinType t_void = {
+    .name = "u0",
+    .byte_size = 0,
+};
+
 struct BuiltinType types[] = {
     u64,
     u32,
+    t_void,
 };
 
 void gen_rand_string(char *s, int l) {
