@@ -171,6 +171,8 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
       printf("push ebp\n");
       printf("mov ebp, esp\n");
       compile_ast(a->children, a, NULL, &data);
+      printf("pop ebp\n");
+      printf("ret\n\n");
       break;
     case if_statement: {
       calculate_asm_expression(a->exp, m, &data);
