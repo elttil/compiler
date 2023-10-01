@@ -453,7 +453,7 @@ int precedence(token_t *t) {
   case plus:
     return 0;
     break;
-  case multiply:
+  case star:
     return 1;
     break;
   default:
@@ -471,7 +471,7 @@ char type_to_operator_char(token_enum t) {
     return '+';
   case minus:
     return '-';
-  case multiply:
+  case star:
     return '*';
   default:
     assert(0);

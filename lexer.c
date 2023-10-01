@@ -38,9 +38,6 @@ void token_printtype(token_t *t) {
   case minus:
     printf("minus\n");
     break;
-  case multiply:
-    printf("multiply\n");
-    break;
   case comma:
     printf("comma\n");
     break;
@@ -189,13 +186,6 @@ const char *parse_token(const char *s, token_t *t) {
   if ('+' == *s) {
     s++;
     t->type = plus;
-    t->next = NULL;
-    t->string_rep = NULL;
-    return s;
-  }
-  if ('*' == *s) {
-    s++;
-    t->type = multiply;
     t->next = NULL;
     t->string_rep = NULL;
     return s;

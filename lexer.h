@@ -8,7 +8,6 @@ typedef enum {
 
   plus,
   minus,
-  multiply,
   lexer_string,
   ampersand,
   star,
