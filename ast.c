@@ -102,15 +102,19 @@ void calculate_asm_expression(ast_t *a, HashMap *m,
     } else if (a->value_type == string) {
       if (!data) {
         data = malloc(sizeof(struct CompiledData));
+        data->prev = NULL;
       } else {
+        struct CompiledData *prev = data;
         data->next = malloc(sizeof(struct CompiledData));
         data = data->next;
+        data->prev = prev;
       }
       data->name = malloc(10);
       gen_rand_string(data->name, 10);
       printf("mov eax, %s\n", data->name);
       data->buffer_size = strlen(a->value.string);
       data->buffer = malloc(data->buffer_size + 1);
+      data->next = NULL;
       strcpy(data->buffer, a->value.string);
     } else {
       assert(0 && "unimplemented");
@@ -218,7 +222,7 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
       hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
       if (a->children) {
         calculate_asm_expression(a->children, m, &data);
-        printf("mov [ebp - 0x%lx], ecx\n", stack);
+        printf("mov [ebp - 0x%lx], eax\n", stack);
       } else {
         printf("%s %s;\n", type_to_string(a->statement_variable_type),
                a->value.string);

@@ -35,6 +35,7 @@ struct CompiledData {
   char *buffer;
   size_t buffer_size;
   struct CompiledData *next;
+  struct CompiledData *prev;
 };
 
 struct ast_struct {

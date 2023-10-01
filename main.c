@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
   compile_ast(h, NULL, NULL, &data);
 
   printf("section .data\n");
-  for (; data; data = data->next) {
+  for (; data; data = data->prev) {
     printf("%s: db '%s'\n", data->name, data->buffer);
   }
   //  print_ast(h);
