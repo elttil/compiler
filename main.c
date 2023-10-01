@@ -33,7 +33,8 @@ int main(int argc, char **argv) {
   ast_t *h = lex2ast(head);
 
   struct CompiledData *data;
-  compile_ast(h, NULL, NULL, &data);
+  size_t s;
+  compile_ast(h, NULL, NULL, &data, stdout, &s);
 
   printf("section .data\n");
   for (; data; data = data->prev) {

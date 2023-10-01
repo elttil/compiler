@@ -4,6 +4,8 @@ typedef struct ast_struct ast_t;
 #include <hashmap/hashmap.h>
 #include <lexer.h>
 #include <stdint.h>
+#include <stdio.h>
+
 typedef union {
   const char *string;
   uint64_t number;
@@ -56,7 +58,7 @@ const char *type_to_string(struct BuiltinType t);
 ast_t *lex2ast(token_t *t);
 void print_ast(ast_t *a);
 void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
-                 struct CompiledData **data_orig);
+                 struct CompiledData **data_orig, FILE *fp, size_t *stack_size);
 
 void test_calculation(void);
 #endif // AST_H
