@@ -1,0 +1,5 @@
+*.o
+vgcore.*
+compiler
+code
+code.asm

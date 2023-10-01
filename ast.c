@@ -641,7 +641,6 @@ ast_t *lex2ast(token_t *t) {
   return r;
 }
 
-#ifdef TESTING
 int calculate_expression(ast_t *a) {
   if (a->type == binaryexpression) {
     int x = calculate_expression(a->left);
@@ -742,4 +741,3 @@ void test_calculation(void) {
   assert(f->value_type == (ast_value_type)number);
   assert(f->value.number == 1);
 }
-#endif // TESTING

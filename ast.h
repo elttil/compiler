@@ -57,7 +57,5 @@ void print_ast(ast_t *a);
 void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
                  struct CompiledData **data_orig);
 
-#ifdef TESTING
 void test_calculation(void);
-#endif // TESTING
 #endif // AST_H
