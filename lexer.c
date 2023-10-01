@@ -47,6 +47,12 @@ void token_printtype(token_t *t) {
   case lexer_string:
     printf("string\n");
     break;
+  case ampersand:
+    printf("ampersand\n");
+    break;
+  case star:
+    printf("star\n");
+    break;
   case end:
     printf("LEXER END\n");
     break;
@@ -162,6 +168,22 @@ const char *parse_token(const char *s, token_t *t) {
     t->next = NULL;
     t->string_rep = calloc(sizeof(char), 2);
     strcpy(t->string_rep, ",");
+    return s;
+  }
+  if ('&' == *s) {
+    s++;
+    t->type = ampersand;
+    t->next = NULL;
+    t->string_rep = calloc(sizeof(char), 2);
+    strcpy(t->string_rep, "&");
+    return s;
+  }
+  if ('*' == *s) {
+    s++;
+    t->type = star;
+    t->next = NULL;
+    t->string_rep = calloc(sizeof(char), 2);
+    strcpy(t->string_rep, "*");
     return s;
   }
   if ('+' == *s) {

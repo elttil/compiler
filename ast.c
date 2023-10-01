@@ -134,16 +134,26 @@ void calculate_asm_expression(ast_t *a, HashMap *m,
     }
     fprintf(fp, "call %s\n", a->value.string);
     fprintf(fp, "add esp, %d\n", stack_to_recover);
-  } else if (a->type == variable) {
+  } else if (a->type == variable || a->type == variable_reference) {
     struct FunctionVariable *ptr =
         hashmap_get_entry(m, (char *)a->value.string);
     assert(ptr && "Unknown variable");
     if (!ptr->is_argument) {
       uint64_t stack_location = ptr->offset;
-      fprintf(fp, "mov eax, [ebp-0x%lx]\n", stack_location);
+      if (a->type == variable_reference) {
+        fprintf(fp, "mov eax, ebp\n");
+        fprintf(fp, "sub eax, 0x%lx\n", stack_location);
+      } else {
+        fprintf(fp, "mov eax, [ebp-0x%lx]\n", stack_location);
+      }
     } else {
       uint64_t stack_location = ptr->offset;
-      fprintf(fp, "mov eax, [ebp+0x%lx]\n", stack_location);
+      if (a->type == variable_reference) {
+        fprintf(fp, "mov eax, ebp\n");
+        fprintf(fp, "add eax, 0x%lx\n", stack_location);
+      } else {
+        fprintf(fp, "mov eax, [ebp+0x%lx]\n", stack_location);
+      }
     }
   } else {
     assert(0);
@@ -244,12 +254,32 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
       break;
     }
     case variable_assignment: {
-      uint64_t *h = hashmap_get_entry(m, (char *)a->value.string);
+      struct FunctionVariable *h =
+          hashmap_get_entry(m, (char *)a->value.string);
       assert(h && "Undefined variable.");
-      uint64_t stack = *h;
+      uint64_t stack = h->offset;
       assert(a->children);
       calculate_asm_expression(a->children, m, &data, fp);
-      fprintf(fp, "mov [ebp - 0x%lx], ecx\n", stack);
+      if (!h->is_argument) {
+        fprintf(fp, "mov [ebp - 0x%lx], eax\n", stack);
+      } else {
+        fprintf(fp, "mov [ebp + 0x%lx], eax\n", stack);
+      }
+      break;
+    }
+    case variable_reference_assignment: {
+      struct FunctionVariable *h =
+          hashmap_get_entry(m, (char *)a->value.string);
+      assert(h && "Undefined variable.");
+      uint64_t stack = h->offset;
+      assert(a->children);
+      calculate_asm_expression(a->children, m, &data, fp);
+      if (!h->is_argument) {
+        fprintf(fp, "mov ecx, [ebp - 0x%lx]\n", stack);
+      } else {
+        fprintf(fp, "mov ecx, [ebp + 0x%lx]\n", stack);
+      }
+      fprintf(fp, "mov [ecx], eax\n");
       break;
     }
     case noop:
@@ -375,6 +405,11 @@ ast_t *parse_primary(token_t **t_orig) {
   ast_t *r = malloc(sizeof(ast_t));
   r->next = NULL;
   r->children = NULL;
+  int is_reference = 0;
+  if (t->type == ampersand) {
+    is_reference = 1;
+    t = t->next;
+  }
   if (t->type == number) {
     r->type = literal;
     r->value_type = number;
@@ -390,7 +425,11 @@ ast_t *parse_primary(token_t **t_orig) {
       t = t->next;
       r->children = parse_function_call_arguments(&t);
     } else {
-      r->type = variable;
+      if (is_reference) {
+        r->type = variable_reference;
+      } else {
+        r->type = variable;
+      }
       r->value_type = string;
       r->value.string = t->string_rep;
       t = t->next;
@@ -540,6 +579,11 @@ ast_t *parse_codeblock(token_t **t_orig) {
   ast_t *r = malloc(sizeof(ast_t));
   ast_t *a = r;
   for (; t->type != closebracket;) {
+    int is_dereference = 0;
+    if (t->type == star) {
+      is_dereference = 1;
+      t = t->next;
+    }
     if (t->type == alpha) {
       // Check for variable
       int error;
@@ -567,7 +611,10 @@ ast_t *parse_codeblock(token_t **t_orig) {
       } else if (t->next->type == equals) {
         // Implies we are parsing <alpha> <equals> <something>("alpha = ?")
         // So it should be a variable assignment
-        a->type = variable_assignment;
+        if (is_dereference)
+          a->type = variable_reference_assignment;
+        else
+          a->type = variable_assignment;
         a->value_type = string;
         a->value.string = t->string_rep; // alpha
 
