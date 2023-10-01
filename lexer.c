@@ -85,7 +85,29 @@ const char *parse_token(const char *s, token_t *t) {
     for (i = 0; *s; s++, i++) {
       if ('"' == *s)
         break;
-      t->string_rep[i] = *s;
+      char c = *s;
+      if ('\\' == c) {
+        s++;
+        assert('\0' != *s);
+        switch (*s) {
+        case 'n':
+          c = '\n';
+          break;
+        case 't':
+          c = '\t';
+          break;
+        case '\\':
+          c = '\\';
+          break;
+        case '0':
+          c = '\0';
+          break;
+        default:
+          assert(0);
+          break;
+        }
+      }
+      t->string_rep[i] = c;
     }
     t->string_rep[i] = '\0';
     s++;
