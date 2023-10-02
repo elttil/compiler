@@ -80,17 +80,17 @@ void calculate_asm_expression(ast_t *a, HashMap *m,
   struct CompiledData *data = *data_orig;
   if (a->type == binaryexpression) {
     calculate_asm_expression(a->right, m, &data, fp);
-    fprintf(fp, "mov ecx, eax\n");
+    fprintf(fp, "mov rcx, rax\n");
     calculate_asm_expression(a->left, m, &data, fp);
     switch (a->operator) {
     case '+':
-      fprintf(fp, "add eax, ecx\n");
+      fprintf(fp, "add rax, rcx\n");
       break;
     case '-':
-      fprintf(fp, "sub eax, ecx\n");
+      fprintf(fp, "sub rax, rcx\n");
       break;
     case '*':
-      fprintf(fp, "mul ecx\n");
+      fprintf(fp, "mul rcx\n");
       break;
     default:
       assert(0);
@@ -98,7 +98,7 @@ void calculate_asm_expression(ast_t *a, HashMap *m,
     }
   } else if (a->type == literal) {
     if (a->value_type == num) {
-      fprintf(fp, "mov eax, %ld\n", a->value.number);
+      fprintf(fp, "mov rax, %ld\n", a->value.number);
     } else if (a->value_type == string) {
       if (!data) {
         data = malloc(sizeof(struct CompiledData));
@@ -111,7 +111,7 @@ void calculate_asm_expression(ast_t *a, HashMap *m,
       }
       data->name = malloc(10);
       gen_rand_string(data->name, 10);
-      fprintf(fp, "mov eax, %s\n", data->name);
+      fprintf(fp, "mov rax, %s\n", data->name);
       data->buffer_size = strlen(a->value.string);
       data->buffer = malloc(data->buffer_size + 1);
       data->next = NULL;
@@ -129,11 +129,11 @@ void calculate_asm_expression(ast_t *a, HashMap *m,
     i--;
     for (; i >= 0; i--) {
       calculate_asm_expression(arguments[i], m, &data, fp);
-      stack_to_recover += 4;
-      fprintf(fp, "push eax\n");
+      stack_to_recover += 8;
+      fprintf(fp, "push rax\n");
     }
     fprintf(fp, "call %s\n", a->value.string);
-    fprintf(fp, "add esp, %d\n", stack_to_recover);
+    fprintf(fp, "add rsp, %d\n", stack_to_recover);
   } else if (a->type == variable || a->type == variable_reference) {
     struct FunctionVariable *ptr =
         hashmap_get_entry(m, (char *)a->value.string);
@@ -141,18 +141,18 @@ void calculate_asm_expression(ast_t *a, HashMap *m,
     if (!ptr->is_argument) {
       uint64_t stack_location = ptr->offset;
       if (a->type == variable_reference) {
-        fprintf(fp, "mov eax, ebp\n");
-        fprintf(fp, "sub eax, 0x%lx\n", stack_location);
+        fprintf(fp, "mov rax, rbp\n");
+        fprintf(fp, "sub rax, 0x%lx\n", stack_location);
       } else {
-        fprintf(fp, "mov eax, [ebp-0x%lx]\n", stack_location);
+        fprintf(fp, "mov rax, [rbp-0x%lx]\n", stack_location);
       }
     } else {
       uint64_t stack_location = ptr->offset;
       if (a->type == variable_reference) {
-        fprintf(fp, "mov eax, ebp\n");
-        fprintf(fp, "add eax, 0x%lx\n", stack_location);
+        fprintf(fp, "mov rax, rbp\n");
+        fprintf(fp, "add rax, 0x%lx\n", stack_location + 0x8);
       } else {
-        fprintf(fp, "mov eax, [ebp+0x%lx]\n", stack_location);
+        fprintf(fp, "mov rax, [rbp+0x%lx]\n", stack_location + 0x8);
       }
     }
   } else {
@@ -175,7 +175,7 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
       struct FunctionVariable *h = malloc(sizeof(struct FunctionVariable));
       *h = (struct FunctionVariable){.offset = i, .is_argument = 1};
       hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
-      i += 0x4;
+      i += 0x8;
     }
   }
   for (; a; a = a->next) {
@@ -183,25 +183,25 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
     case function:
       assert(a->value_type == string);
       fprintf(fp, "%s:\n", a->value.string);
-      fprintf(fp, "push ebp\n");
-      fprintf(fp, "mov ebp, esp\n");
+      fprintf(fp, "push rbp\n");
+      fprintf(fp, "mov rbp, rsp\n");
       char *buffer;
       size_t length = 0;
       FILE *memstream = open_memstream(&buffer, &length);
-      size_t s = 4;
+      size_t s = 8;
       compile_ast(a->children, a, NULL, &data, memstream, &s);
       fflush(memstream);
-      if (s > 4)
-        fprintf(fp, "sub esp, %ld\n", s);
+      if (s > 8)
+        fprintf(fp, "sub rsp, %ld\n", s);
       fwrite(buffer, length, 1, fp);
       fclose(memstream);
-      fprintf(fp, "mov esp, ebp\n");
-      fprintf(fp, "pop ebp\n");
+      fprintf(fp, "mov rsp, rbp\n");
+      fprintf(fp, "pop rbp\n");
       fprintf(fp, "ret\n\n");
       break;
     case if_statement: {
       calculate_asm_expression(a->exp, m, &data, fp);
-      fprintf(fp, "and eax, eax\n");
+      fprintf(fp, "and rax, rax\n");
       char rand_string[10];
       gen_rand_string(rand_string, sizeof(rand_string));
       fprintf(fp, "jz _end_if_%s\n", rand_string);
@@ -223,30 +223,31 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
         i--;
         for (; i >= 0; i--) {
           calculate_asm_expression(arguments[i], m, &data, fp);
-          stack_to_recover += 4;
-          fprintf(fp, "push eax\n");
+          stack_to_recover += 8;
+          fprintf(fp, "push rax\n");
         }
         fprintf(fp, "call %s\n", a->value.string);
-        fprintf(fp, "add esp, %d\n", stack_to_recover);
+        fprintf(fp, "add rsp, %d\n", stack_to_recover);
       }
       break;
     case return_statement: {
       calculate_asm_expression(a->children, m, &data, fp);
-      fprintf(fp, "mov esp, ebp\n");
-      fprintf(fp, "pop ebp\n");
+      fprintf(fp, "mov rsp, rbp\n");
+      fprintf(fp, "pop rbp\n");
       fprintf(fp, "ret\n\n");
       break;
     }
     case variable_declaration: {
-      stack += 0x4;
-      if (s)
-        *stack_size += 0x4;
+      stack += 0x8;
+      if (s) {
+        *stack_size += 0x8;
+      }
       struct FunctionVariable *h = malloc(sizeof(struct FunctionVariable));
       *h = (struct FunctionVariable){.offset = stack, .is_argument = 0};
       hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
       if (a->children) {
         calculate_asm_expression(a->children, m, &data, fp);
-        fprintf(fp, "mov [ebp - 0x%lx], eax\n", stack);
+        fprintf(fp, "mov [rbp - 0x%lx], rax\n", stack);
       } else {
         fprintf(fp, "%s %s;\n", type_to_string(a->statement_variable_type),
                 a->value.string);
@@ -261,9 +262,9 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
       assert(a->children);
       calculate_asm_expression(a->children, m, &data, fp);
       if (!h->is_argument) {
-        fprintf(fp, "mov [ebp - 0x%lx], eax\n", stack);
+        fprintf(fp, "mov [rbp - 0x%lx], rax\n", stack);
       } else {
-        fprintf(fp, "mov [ebp + 0x%lx], eax\n", stack);
+        fprintf(fp, "mov [rbp + 0x%lx], rax\n", stack + 0x8);
       }
       break;
     }
@@ -275,11 +276,11 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
       assert(a->children);
       calculate_asm_expression(a->children, m, &data, fp);
       if (!h->is_argument) {
-        fprintf(fp, "mov ecx, [ebp - 0x%lx]\n", stack);
+        fprintf(fp, "mov rcx, [rbp - 0x%lx]\n", stack);
       } else {
-        fprintf(fp, "mov ecx, [ebp + 0x%lx]\n", stack);
+        fprintf(fp, "mov rcx, [rbp + 0x%lx]\n", stack + 0x8);
       }
-      fprintf(fp, "mov [ecx], eax\n");
+      fprintf(fp, "mov [rcx], rax\n");
       break;
     }
     case noop:

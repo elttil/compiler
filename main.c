@@ -26,6 +26,7 @@ int main(int argc, char **argv) {
   assert(fread(buffer, 1, l, fp) == l);
   buffer[l] = '\0';
   fclose(fp);
+  printf("BITS 64\n");
   printf("global _start\n");
   printf("section .text\n");
   token_t *head = lexer(buffer);
