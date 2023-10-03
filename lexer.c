@@ -223,6 +223,7 @@ const char *parse_token(const char *s, token_t *t) {
     t->string_rep[i] = '\0';
     return s;
   }
+  printf("Rest: %s\n", s);
   assert(0 && "Unknown token");
 }
 

@@ -10,6 +10,8 @@ ast_t *parse_codeblock(token_t **t_orig);
 ast_t *parse_primary(token_t **t_orig);
 ast_t *parse_expression(token_t **t_orig);
 struct BuiltinType parse_type(const char *s, int *error);
+void calculate_asm_expression(ast_t *a, HashMap *m,
+                              struct CompiledData **data_orig, FILE *fp);
 
 struct FunctionVariable {
   uint64_t offset;
@@ -75,90 +77,218 @@ int builtin_functions(const char *function, ast_t *arguments) {
   return 0;
 }
 
+void compile_binary_expression(ast_t *a, HashMap *m,
+                               struct CompiledData **data_orig, FILE *fp) {
+  calculate_asm_expression(a->right, m, data_orig, fp);
+  fprintf(fp, "mov rcx, rax\n");
+  calculate_asm_expression(a->left, m, data_orig, fp);
+  switch (a->operator) {
+  case '+':
+    fprintf(fp, "add rax, rcx\n");
+    break;
+  case '-':
+    fprintf(fp, "sub rax, rcx\n");
+    break;
+  case '*':
+    fprintf(fp, "mul rcx\n");
+    break;
+  default:
+    assert(0);
+    break;
+  }
+}
+
+void compile_function_call(ast_t *a, HashMap *m,
+                           struct CompiledData **data_orig, FILE *fp,
+                           int allow_builtin) {
+  assert(a->value_type == string);
+  if (allow_builtin) {
+    int rc = builtin_functions(a->value.string, a->children);
+    if (rc)
+      return;
+  }
+  int stack_to_recover = 0;
+  ast_t *arguments[10];
+  int i = 0;
+  for (ast_t *c = a->children; c; c = c->next, i++) {
+    arguments[i] = c;
+  }
+  i--;
+  for (; i >= 0; i--) {
+    calculate_asm_expression(arguments[i], m, data_orig, fp);
+    stack_to_recover += 8;
+    fprintf(fp, "push rax\n");
+  }
+  fprintf(fp, "call %s\n", a->value.string);
+  fprintf(fp, "add rsp, %d\n", stack_to_recover);
+}
+
+void compile_variable(ast_t *a, HashMap *m, FILE *fp) {
+  struct FunctionVariable *ptr = hashmap_get_entry(m, (char *)a->value.string);
+  assert(ptr && "Unknown variable");
+  uint64_t stack_location = ptr->offset;
+  if (ptr->is_argument) {
+    if (a->type == variable_reference) {
+      fprintf(fp, "mov rax, rbp\n");
+      fprintf(fp, "add rax, 0x%lx\n", stack_location + 0x8);
+      return;
+    }
+    fprintf(fp, "mov rax, [rbp+0x%lx]\n", stack_location + 0x8);
+    return;
+  }
+  if (a->type == variable_reference) {
+    fprintf(fp, "mov rax, rbp\n");
+    fprintf(fp, "sub rax, 0x%lx\n", stack_location);
+    return;
+  }
+  fprintf(fp, "mov rax, [rbp-0x%lx]\n", stack_location);
+}
+
+void compile_literal(ast_t *a, HashMap *m, struct CompiledData **data_orig,
+                     FILE *fp) {
+  struct CompiledData *data = *data_orig;
+  if (a->value_type == num) {
+    fprintf(fp, "mov rax, %ld\n", a->value.number);
+  } else if (a->value_type == string) {
+    if (!data) {
+      data = malloc(sizeof(struct CompiledData));
+      data->prev = NULL;
+    } else {
+      struct CompiledData *prev = data;
+      data->next = malloc(sizeof(struct CompiledData));
+      data = data->next;
+      data->prev = prev;
+    }
+    data->name = malloc(10);
+    gen_rand_string(data->name, 10);
+    fprintf(fp, "mov rax, %s\n", data->name);
+    data->buffer_size = strlen(a->value.string);
+    data->buffer = malloc(data->buffer_size + 1);
+    data->next = NULL;
+    strcpy(data->buffer, a->value.string);
+  } else {
+    assert(0 && "unimplemented");
+  }
+  *data_orig = data;
+}
+
 void calculate_asm_expression(ast_t *a, HashMap *m,
                               struct CompiledData **data_orig, FILE *fp) {
-  struct CompiledData *data = *data_orig;
   if (a->type == binaryexpression) {
-    calculate_asm_expression(a->right, m, &data, fp);
-    fprintf(fp, "mov rcx, rax\n");
-    calculate_asm_expression(a->left, m, &data, fp);
-    switch (a->operator) {
-    case '+':
-      fprintf(fp, "add rax, rcx\n");
-      break;
-    case '-':
-      fprintf(fp, "sub rax, rcx\n");
-      break;
-    case '*':
-      fprintf(fp, "mul rcx\n");
-      break;
-    default:
-      assert(0);
-      break;
-    }
+    compile_binary_expression(a, m, data_orig, fp);
   } else if (a->type == literal) {
-    if (a->value_type == num) {
-      fprintf(fp, "mov rax, %ld\n", a->value.number);
-    } else if (a->value_type == string) {
-      if (!data) {
-        data = malloc(sizeof(struct CompiledData));
-        data->prev = NULL;
-      } else {
-        struct CompiledData *prev = data;
-        data->next = malloc(sizeof(struct CompiledData));
-        data = data->next;
-        data->prev = prev;
-      }
-      data->name = malloc(10);
-      gen_rand_string(data->name, 10);
-      fprintf(fp, "mov rax, %s\n", data->name);
-      data->buffer_size = strlen(a->value.string);
-      data->buffer = malloc(data->buffer_size + 1);
-      data->next = NULL;
-      strcpy(data->buffer, a->value.string);
-    } else {
-      assert(0 && "unimplemented");
-    }
+    compile_literal(a, m, data_orig, fp);
   } else if (a->type == function_call) {
-    int stack_to_recover = 0;
-    ast_t *arguments[10];
-    int i = 0;
-    for (ast_t *c = a->children; c; c = c->next, i++) {
-      arguments[i] = c;
-    }
-    i--;
-    for (; i >= 0; i--) {
-      calculate_asm_expression(arguments[i], m, &data, fp);
-      stack_to_recover += 8;
-      fprintf(fp, "push rax\n");
-    }
-    fprintf(fp, "call %s\n", a->value.string);
-    fprintf(fp, "add rsp, %d\n", stack_to_recover);
+    compile_function_call(a, m, data_orig, fp, 0);
   } else if (a->type == variable || a->type == variable_reference) {
-    struct FunctionVariable *ptr =
-        hashmap_get_entry(m, (char *)a->value.string);
-    assert(ptr && "Unknown variable");
-    if (!ptr->is_argument) {
-      uint64_t stack_location = ptr->offset;
-      if (a->type == variable_reference) {
-        fprintf(fp, "mov rax, rbp\n");
-        fprintf(fp, "sub rax, 0x%lx\n", stack_location);
-      } else {
-        fprintf(fp, "mov rax, [rbp-0x%lx]\n", stack_location);
-      }
-    } else {
-      uint64_t stack_location = ptr->offset;
-      if (a->type == variable_reference) {
-        fprintf(fp, "mov rax, rbp\n");
-        fprintf(fp, "add rax, 0x%lx\n", stack_location + 0x8);
-      } else {
-        fprintf(fp, "mov rax, [rbp+0x%lx]\n", stack_location + 0x8);
-      }
-    }
+    compile_variable(a, m, fp);
   } else {
     assert(0);
   }
-  *data_orig = data;
+}
+
+void compile_function(ast_t *a, struct CompiledData **data_orig, FILE *fp) {
+  assert(a->value_type == string);
+  fprintf(fp, "%s:\n", a->value.string);
+  fprintf(fp, "push rbp\n");
+  fprintf(fp, "mov rbp, rsp\n");
+  char *buffer;
+  size_t length = 0;
+  FILE *memstream = open_memstream(&buffer, &length);
+  size_t s = 8;
+  compile_ast(a->children, a, NULL, data_orig, memstream, &s);
+  fflush(memstream);
+  if (s > 8)
+    fprintf(fp, "sub rsp, %ld\n", s);
+  fwrite(buffer, length, 1, fp);
+  fclose(memstream);
+  fprintf(fp, "mov rsp, rbp\n");
+  fprintf(fp, "pop rbp\n");
+  fprintf(fp, "ret\n\n");
+}
+
+void compile_if_statement(ast_t *a, HashMap *m, struct CompiledData **data_orig,
+                          FILE *fp, size_t *stack_size) {
+  calculate_asm_expression(a->exp, m, data_orig, fp);
+  fprintf(fp, "and rax, rax\n");
+  char rand_string[10];
+  gen_rand_string(rand_string, sizeof(rand_string));
+  fprintf(fp, "jz _end_if_%s\n", rand_string);
+  compile_ast(a->children, NULL, m, data_orig, fp, stack_size);
+  fprintf(fp, "_end_if_%s:\n", rand_string);
+}
+
+void compile_for_statement(ast_t *a, HashMap *m,
+                           struct CompiledData **data_orig, FILE *fp,
+                           size_t *stack_size) {
+  char for_statement_rand_string[10];
+  gen_rand_string(for_statement_rand_string, sizeof(for_statement_rand_string));
+  char rand_string[10];
+  gen_rand_string(rand_string, sizeof(rand_string));
+  fprintf(fp, "%s:\n", for_statement_rand_string);
+  calculate_asm_expression(a->exp, m, data_orig, fp);
+  fprintf(fp, "and rax, rax\n");
+  fprintf(fp, "jz _end_if_%s\n", rand_string);
+  compile_ast(a->children, NULL, m, data_orig, fp, stack_size);
+  fprintf(fp, "jmp %s\n", for_statement_rand_string);
+  fprintf(fp, "_end_if_%s:\n", rand_string);
+}
+
+void compile_return_statement(ast_t *a, HashMap *m,
+                              struct CompiledData **data_orig, FILE *fp) {
+  calculate_asm_expression(a->children, m, data_orig, fp);
+  fprintf(fp, "mov rsp, rbp\n");
+  fprintf(fp, "pop rbp\n");
+  fprintf(fp, "ret\n\n");
+}
+
+void compile_variable_declaration(ast_t *a, HashMap *m,
+                                  struct CompiledData **data_orig, FILE *fp,
+                                  size_t *stack_size, uint64_t *stack) {
+  *stack += 0x8;
+  if (stack_size) {
+    *stack_size += 0x8;
+  }
+  struct FunctionVariable *h = malloc(sizeof(struct FunctionVariable));
+  *h = (struct FunctionVariable){.offset = *stack, .is_argument = 0};
+  hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
+  if (a->children) {
+    calculate_asm_expression(a->children, m, data_orig, fp);
+    fprintf(fp, "mov [rbp - 0x%lx], rax\n", *stack);
+  } else {
+    fprintf(fp, "%s %s;\n", type_to_string(a->statement_variable_type),
+            a->value.string);
+  }
+}
+
+void compile_variable_assignment(ast_t *a, HashMap *m,
+                                 struct CompiledData **data_orig, FILE *fp) {
+  struct FunctionVariable *h = hashmap_get_entry(m, (char *)a->value.string);
+  assert(h && "Undefined variable.");
+  uint64_t stack = h->offset;
+  assert(a->children);
+  calculate_asm_expression(a->children, m, data_orig, fp);
+  if (!h->is_argument) {
+    fprintf(fp, "mov [rbp - 0x%lx], rax\n", stack);
+  } else {
+    fprintf(fp, "mov [rbp + 0x%lx], rax\n", stack + 0x8);
+  }
+}
+
+void compile_variable_reference_assignment(ast_t *a, HashMap *m,
+                                           struct CompiledData **data_orig,
+                                           FILE *fp) {
+  struct FunctionVariable *h = hashmap_get_entry(m, (char *)a->value.string);
+  assert(h && "Undefined variable.");
+  uint64_t stack = h->offset;
+  assert(a->children);
+  calculate_asm_expression(a->children, m, data_orig, fp);
+  if (!h->is_argument) {
+    fprintf(fp, "mov rcx, [rbp - 0x%lx]\n", stack);
+  } else {
+    fprintf(fp, "mov rcx, [rbp + 0x%lx]\n", stack + 0x8);
+  }
+  fprintf(fp, "mov [rcx], rax\n");
 }
 
 void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
@@ -181,122 +311,29 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
   for (; a; a = a->next) {
     switch (a->type) {
     case function:
-      assert(a->value_type == string);
-      fprintf(fp, "%s:\n", a->value.string);
-      fprintf(fp, "push rbp\n");
-      fprintf(fp, "mov rbp, rsp\n");
-      char *buffer;
-      size_t length = 0;
-      FILE *memstream = open_memstream(&buffer, &length);
-      size_t s = 8;
-      compile_ast(a->children, a, NULL, &data, memstream, &s);
-      fflush(memstream);
-      if (s > 8)
-        fprintf(fp, "sub rsp, %ld\n", s);
-      fwrite(buffer, length, 1, fp);
-      fclose(memstream);
-      fprintf(fp, "mov rsp, rbp\n");
-      fprintf(fp, "pop rbp\n");
-      fprintf(fp, "ret\n\n");
+      compile_function(a, &data, fp);
       break;
-    case if_statement: {
-      calculate_asm_expression(a->exp, m, &data, fp);
-      fprintf(fp, "and rax, rax\n");
-      char rand_string[10];
-      gen_rand_string(rand_string, sizeof(rand_string));
-      fprintf(fp, "jz _end_if_%s\n", rand_string);
-      compile_ast(a->children, NULL, m, &data, fp, stack_size);
-      fprintf(fp, "_end_if_%s:\n", rand_string);
+    case if_statement:
+      compile_if_statement(a, m, &data, fp, stack_size);
       break;
-    }
-    case for_statement: {
-      char for_statement_rand_string[10];
-      gen_rand_string(for_statement_rand_string,
-                      sizeof(for_statement_rand_string));
-      char rand_string[10];
-      gen_rand_string(rand_string, sizeof(rand_string));
-      fprintf(fp, "%s:\n", for_statement_rand_string);
-      calculate_asm_expression(a->exp, m, &data, fp);
-      fprintf(fp, "and rax, rax\n");
-      fprintf(fp, "jz _end_if_%s\n", rand_string);
-      compile_ast(a->children, NULL, m, &data, fp, stack_size);
-      fprintf(fp, "jmp %s\n", for_statement_rand_string);
-      fprintf(fp, "_end_if_%s:\n", rand_string);
+    case for_statement:
+      compile_for_statement(a, m, &data, fp, stack_size);
       break;
-    }
     case function_call:
-      assert(a->value_type == string);
-      int rc = builtin_functions(a->value.string, a->children);
-      if (!rc) {
-        int stack_to_recover = 0;
-        ast_t *arguments[10];
-        int i = 0;
-        for (ast_t *c = a->children; c; c = c->next, i++) {
-          arguments[i] = c;
-        }
-        i--;
-        for (; i >= 0; i--) {
-          calculate_asm_expression(arguments[i], m, &data, fp);
-          stack_to_recover += 8;
-          fprintf(fp, "push rax\n");
-        }
-        fprintf(fp, "call %s\n", a->value.string);
-        fprintf(fp, "add rsp, %d\n", stack_to_recover);
-      }
+      compile_function_call(a, m, &data, fp, 1);
       break;
-    case return_statement: {
-      calculate_asm_expression(a->children, m, &data, fp);
-      fprintf(fp, "mov rsp, rbp\n");
-      fprintf(fp, "pop rbp\n");
-      fprintf(fp, "ret\n\n");
+    case return_statement:
+      compile_return_statement(a, m, &data, fp);
       break;
-    }
-    case variable_declaration: {
-      stack += 0x8;
-      if (s) {
-        *stack_size += 0x8;
-      }
-      struct FunctionVariable *h = malloc(sizeof(struct FunctionVariable));
-      *h = (struct FunctionVariable){.offset = stack, .is_argument = 0};
-      hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
-      if (a->children) {
-        calculate_asm_expression(a->children, m, &data, fp);
-        fprintf(fp, "mov [rbp - 0x%lx], rax\n", stack);
-      } else {
-        fprintf(fp, "%s %s;\n", type_to_string(a->statement_variable_type),
-                a->value.string);
-      }
+    case variable_declaration:
+      compile_variable_declaration(a, m, &data, fp, stack_size, &stack);
       break;
-    }
-    case variable_assignment: {
-      struct FunctionVariable *h =
-          hashmap_get_entry(m, (char *)a->value.string);
-      assert(h && "Undefined variable.");
-      uint64_t stack = h->offset;
-      assert(a->children);
-      calculate_asm_expression(a->children, m, &data, fp);
-      if (!h->is_argument) {
-        fprintf(fp, "mov [rbp - 0x%lx], rax\n", stack);
-      } else {
-        fprintf(fp, "mov [rbp + 0x%lx], rax\n", stack + 0x8);
-      }
+    case variable_assignment:
+      compile_variable_assignment(a, m, &data, fp);
       break;
-    }
-    case variable_reference_assignment: {
-      struct FunctionVariable *h =
-          hashmap_get_entry(m, (char *)a->value.string);
-      assert(h && "Undefined variable.");
-      uint64_t stack = h->offset;
-      assert(a->children);
-      calculate_asm_expression(a->children, m, &data, fp);
-      if (!h->is_argument) {
-        fprintf(fp, "mov rcx, [rbp - 0x%lx]\n", stack);
-      } else {
-        fprintf(fp, "mov rcx, [rbp + 0x%lx]\n", stack + 0x8);
-      }
-      fprintf(fp, "mov [rcx], rax\n");
+    case variable_reference_assignment:
+      compile_variable_reference_assignment(a, m, &data, fp);
       break;
-    }
     case noop:
       break;
     default:
@@ -304,45 +341,6 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
     }
   }
   *data_orig = data;
-}
-
-void print_ast(ast_t *a) {
-  for (; a; a = a->next) {
-    switch (a->type) {
-    case function:
-      assert(a->value_type == string);
-      printf("function (%s) -> %s{\n", a->value.string,
-             type_to_string(a->statement_variable_type));
-      print_ast(a->children);
-      printf("}\n");
-      break;
-    case function_call:
-      assert(a->value_type == string);
-      printf("calling function: %s\n", a->value.string);
-      break;
-    case return_statement: {
-      printf("return: ");
-      print_expression(a->children);
-      printf("\n");
-      break;
-    }
-    case variable_declaration: {
-      if (a->children) {
-        printf("%s %s = ", type_to_string(a->statement_variable_type),
-               a->value.string);
-        print_expression(a->children);
-        printf(";\n");
-      } else {
-        printf("%s %s;\n", type_to_string(a->statement_variable_type),
-               a->value.string);
-      }
-    } break;
-    case noop:
-      break;
-    default:
-      assert(0 && "unimplemented");
-    }
-  }
 }
 
 uint64_t parse_number(const char *s) {
@@ -455,7 +453,7 @@ ast_t *parse_primary(token_t **t_orig) {
     r->value.string = t->string_rep;
     t = t->next;
   } else {
-    printf("t->type: %x\n", t->type);
+    printf("t->type: %d\n", t->type);
     assert(0);
   }
   *t_orig = t;
