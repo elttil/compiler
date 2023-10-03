@@ -66,6 +66,13 @@ int lexer_isalpha(char c) { return isalpha(c) || c == '_'; }
 
 const char *parse_token(const char *s, token_t *t) {
   s = skip_whitespace(s);
+  if ('/' == *s && '/' == *(s + 1)) {
+    for (; *s && '\n' != *s; s++)
+      ;
+    if ('\n' == *s)
+      s++;
+    return parse_token(s, t);
+  }
   if (lexer_isalpha(*s)) {
     t->type = alpha;
     t->next = NULL;
