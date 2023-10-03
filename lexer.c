@@ -197,6 +197,13 @@ const char *parse_token(const char *s, token_t *t) {
     t->string_rep = NULL;
     return s;
   }
+  if ('-' == *s) {
+    s++;
+    t->type = minus;
+    t->next = NULL;
+    t->string_rep = NULL;
+    return s;
+  }
   if ('\0' == *s) {
     t->type = end;
     t->next = NULL;
