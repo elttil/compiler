@@ -15,6 +15,7 @@ typedef enum { num, string } ast_value_type;
 
 typedef enum {
   if_statement,
+  for_statement,
   function,
   variable,
   variable_reference,

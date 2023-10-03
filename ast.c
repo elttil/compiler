@@ -205,8 +205,22 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
       char rand_string[10];
       gen_rand_string(rand_string, sizeof(rand_string));
       fprintf(fp, "jz _end_if_%s\n", rand_string);
-      // TODO: Make a jump
       compile_ast(a->children, NULL, m, &data, fp, stack_size);
+      fprintf(fp, "_end_if_%s:\n", rand_string);
+      break;
+    }
+    case for_statement: {
+      char for_statement_rand_string[10];
+      gen_rand_string(for_statement_rand_string,
+                      sizeof(for_statement_rand_string));
+      char rand_string[10];
+      gen_rand_string(rand_string, sizeof(rand_string));
+      fprintf(fp, "%s:\n", for_statement_rand_string);
+      calculate_asm_expression(a->exp, m, &data, fp);
+      fprintf(fp, "and rax, rax\n");
+      fprintf(fp, "jz _end_if_%s\n", rand_string);
+      compile_ast(a->children, NULL, m, &data, fp, stack_size);
+      fprintf(fp, "jmp %s\n", for_statement_rand_string);
       fprintf(fp, "_end_if_%s:\n", rand_string);
       break;
     }
@@ -551,6 +565,30 @@ struct BuiltinType parse_type(const char *s, int *error) {
   return u64;
 }
 
+int parse_for(token_t **t_orig, ast_t *a) {
+  token_t *t = *t_orig;
+  if (0 != strcmp(t->string_rep, "for"))
+    return 0;
+
+  a->type = for_statement;
+
+  t = t->next;
+  assert(t->type == openparen);
+  t = t->next;
+
+  a->exp = parse_expression(&t);
+  assert(t->type == closeparen);
+
+  t = t->next;
+  assert(t->type == openbracket);
+
+  t = t->next;
+  a->children = parse_codeblock(&t);
+
+  *t_orig = t;
+  return 1;
+}
+
 int parse_if(token_t **t_orig, ast_t *a) {
   token_t *t = *t_orig;
   if (0 != strcmp(t->string_rep, "if"))
@@ -625,8 +663,12 @@ ast_t *parse_codeblock(token_t **t_orig) {
         assert(t->type == semicolon);
         t = t->next;
       } else if (t->next->type == openparen) {
-        int worked = parse_if(&t, a);
-        if (!worked) {
+        int worked_if = parse_if(&t, a);
+        int worked_for = 0;
+        if (!worked_if) {
+          worked_for = parse_for(&t, a);
+        }
+        if (!worked_if && !worked_for) {
           a->type = function_call;
           a->value.string = t->string_rep;
           a->value_type = string;
