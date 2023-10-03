@@ -65,6 +65,16 @@ const char *skip_whitespace(const char *s) {
 int lexer_isalpha(char c) { return isalpha(c) || c == '_'; }
 
 const char *parse_token(const char *s, token_t *t) {
+#define PARSE_CHAR_TO_TOKEN(_c, _t)                                            \
+  if (_c == *s) {                                                              \
+    s++;                                                                       \
+    t->type = _t;                                                              \
+    t->next = NULL;                                                            \
+    t->string_rep = calloc(sizeof(char), 2);                                   \
+    t->string_rep[0] = _c;                                                     \
+    return s;                                                                  \
+  }
+
   s = skip_whitespace(s);
   if ('/' == *s && '/' == *(s + 1)) {
     for (; *s && '\n' != *s; s++)
@@ -123,87 +133,17 @@ const char *parse_token(const char *s, token_t *t) {
     s++;
     return s;
   }
-  if ('(' == *s) {
-    s++;
-    t->type = openparen;
-    t->next = NULL;
-    t->string_rep = NULL;
-    return s;
-  }
-  if (')' == *s) {
-    s++;
-    t->type = closeparen;
-    t->next = NULL;
-    t->string_rep = NULL;
-    return s;
-  }
-  if ('{' == *s) {
-    s++;
-    t->type = openbracket;
-    t->next = NULL;
-    t->string_rep = NULL;
-    return s;
-  }
-  if ('}' == *s) {
-    s++;
-    t->type = closebracket;
-    t->next = NULL;
-    t->string_rep = NULL;
-    return s;
-  }
-  if ('=' == *s) {
-    s++;
-    t->type = equals;
-    t->next = NULL;
-    t->string_rep = NULL;
-    return s;
-  }
-  if (';' == *s) {
-    s++;
-    t->type = semicolon;
-    t->next = NULL;
-    t->string_rep = calloc(sizeof(char), 2);
-    strcpy(t->string_rep, ";");
-    return s;
-  }
-  if (',' == *s) {
-    s++;
-    t->type = comma;
-    t->next = NULL;
-    t->string_rep = calloc(sizeof(char), 2);
-    strcpy(t->string_rep, ",");
-    return s;
-  }
-  if ('&' == *s) {
-    s++;
-    t->type = ampersand;
-    t->next = NULL;
-    t->string_rep = calloc(sizeof(char), 2);
-    strcpy(t->string_rep, "&");
-    return s;
-  }
-  if ('*' == *s) {
-    s++;
-    t->type = star;
-    t->next = NULL;
-    t->string_rep = calloc(sizeof(char), 2);
-    strcpy(t->string_rep, "*");
-    return s;
-  }
-  if ('+' == *s) {
-    s++;
-    t->type = plus;
-    t->next = NULL;
-    t->string_rep = NULL;
-    return s;
-  }
-  if ('-' == *s) {
-    s++;
-    t->type = minus;
-    t->next = NULL;
-    t->string_rep = NULL;
-    return s;
-  }
+  PARSE_CHAR_TO_TOKEN('(', openparen);
+  PARSE_CHAR_TO_TOKEN(')', closeparen);
+  PARSE_CHAR_TO_TOKEN('{', openbracket);
+  PARSE_CHAR_TO_TOKEN('}', closebracket);
+  PARSE_CHAR_TO_TOKEN('=', equals);
+  PARSE_CHAR_TO_TOKEN(';', semicolon);
+  PARSE_CHAR_TO_TOKEN(',', comma);
+  PARSE_CHAR_TO_TOKEN('&', ampersand);
+  PARSE_CHAR_TO_TOKEN('*', star);
+  PARSE_CHAR_TO_TOKEN('+', plus);
+  PARSE_CHAR_TO_TOKEN('-', minus);
   if ('\0' == *s) {
     t->type = end;
     t->next = NULL;
