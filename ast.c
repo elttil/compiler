@@ -567,6 +567,9 @@ struct BuiltinType parse_type(const char *s, int *error) {
 
 int parse_for(token_t **t_orig, ast_t *a) {
   token_t *t = *t_orig;
+  if (t->type != alpha)
+    return 0;
+
   if (0 != strcmp(t->string_rep, "for"))
     return 0;
 
@@ -591,6 +594,9 @@ int parse_for(token_t **t_orig, ast_t *a) {
 
 int parse_if(token_t **t_orig, ast_t *a) {
   token_t *t = *t_orig;
+  if (t->type != alpha)
+    return 0;
+
   if (0 != strcmp(t->string_rep, "if"))
     return 0;
 
@@ -613,86 +619,131 @@ int parse_if(token_t **t_orig, ast_t *a) {
   return 1;
 }
 
+int parse_variable_declaration(token_t **t_orig, ast_t *a) {
+  token_t *t = *t_orig;
+  if (t->type != alpha)
+    return 0;
+  int error;
+  struct BuiltinType type = parse_type(t->string_rep, &error);
+  if (error) {
+    return 0;
+  }
+  // Implies we are parsing <type> <something>
+  // So it should be a variable declaration.
+  a->type = variable_declaration;
+  a->children = NULL;
+  a->statement_variable_type = type;
+  t = t->next;
+  assert(t->type == alpha && "Expected name after type.");
+  a->value_type = string;
+  a->value.string = t->string_rep;
+  t = t->next;
+  if (t->type != semicolon) {
+    assert(t->type == equals && "Expected equals");
+    t = t->next;
+    a->children = parse_expression(&t);
+    assert(t->type == semicolon);
+    t = t->next;
+  } else {
+    t = t->next;
+  }
+  *t_orig = t;
+  return 1;
+}
+
+int parse_variable_assignment(token_t **t_orig, ast_t *a) {
+  int is_dereference = 0;
+  token_t *t = *t_orig;
+  if (t->type == star) {
+    is_dereference = 1;
+    t = t->next;
+  }
+  if (t->type != alpha) {
+    return 0;
+  }
+  if (t->next->type != equals) {
+    return 0;
+  }
+
+  // Implies we are parsing <alpha> <equals> <something>("alpha = ?")
+  // So it should be a variable assignment
+  if (is_dereference)
+    a->type = variable_reference_assignment;
+  else
+    a->type = variable_assignment;
+  a->value_type = string;
+  a->value.string = t->string_rep; // alpha
+
+  t = t->next; // equals
+  t = t->next; // something
+  a->children = parse_expression(&t);
+  assert(t->type == semicolon);
+  t = t->next;
+
+  *t_orig = t;
+  return 1;
+}
+
+int parse_function_call(token_t **t_orig, ast_t *a) {
+  token_t *t = *t_orig;
+  if (t->type != alpha)
+    return 0;
+  if (t->next->type != openparen)
+    return 0;
+  a->type = function_call;
+  a->value.string = t->string_rep;
+  a->value_type = string;
+
+  t = t->next;
+  t = t->next;
+  a->children = parse_function_call_arguments(&t);
+  assert(t->type == semicolon && "Expeceted semicolonn");
+  t = t->next;
+
+  *t_orig = t;
+  return 1;
+}
+
+int parse_builtin_statement(token_t **t_orig, ast_t *a) {
+  token_t *t = *t_orig;
+  if (t->type != alpha)
+    return 0;
+  // Check for builtin statement
+  assert(t->string_rep);
+  if (0 == strcmp(t->string_rep, "return")) {
+    a->type = return_statement;
+    a->next = NULL;
+    t = t->next;
+    a->children = parse_expression(&t);
+    t = t->next;
+  } else {
+    assert(0 && "Expected builtin statement");
+  }
+  *t_orig = t;
+  return 1;
+}
+
 ast_t *parse_codeblock(token_t **t_orig) {
   token_t *t = *t_orig;
   ast_t *r = malloc(sizeof(ast_t));
   ast_t *a = r;
   for (; t->type != closebracket;) {
-    int is_dereference = 0;
-    if (t->type == star) {
-      is_dereference = 1;
-      t = t->next;
-    }
-    if (t->type == alpha) {
-      // Check for variable
-      int error;
-      struct BuiltinType type = parse_type(t->string_rep, &error);
-      if (!error) {
-        // Implies we are parsing <type> <something>
-        // So it should be a variable declaration.
-        a->type = variable_declaration;
-        a->children = NULL;
-        a->statement_variable_type = type;
-        t = t->next;
-        assert(t->type == alpha && "Expected name after type.");
-        a->value_type = string;
-        a->value.string = t->string_rep;
-        t = t->next;
-        if (t->type != semicolon) {
-          assert(t->type == equals && "Expected equals");
-          t = t->next;
-          a->children = parse_expression(&t);
-          assert(t->type == semicolon);
-          t = t->next;
-        } else {
-          t = t->next;
-        }
-      } else if (t->next->type == equals) {
-        // Implies we are parsing <alpha> <equals> <something>("alpha = ?")
-        // So it should be a variable assignment
-        if (is_dereference)
-          a->type = variable_reference_assignment;
-        else
-          a->type = variable_assignment;
-        a->value_type = string;
-        a->value.string = t->string_rep; // alpha
+    if (parse_variable_assignment(&t, a))
+      goto cont_for_loop;
+    else if (parse_variable_declaration(&t, a))
+      goto cont_for_loop;
+    else if (parse_if(&t, a))
+      goto cont_for_loop;
+    else if (parse_for(&t, a))
+      goto cont_for_loop;
+    else if (parse_function_call(&t, a))
+      goto cont_for_loop;
+    else if (parse_builtin_statement(&t, a))
+      goto cont_for_loop;
+    else
+      assert(0);
 
-        t = t->next; // equals
-        t = t->next; // something
-        a->children = parse_expression(&t);
-        assert(t->type == semicolon);
-        t = t->next;
-      } else if (t->next->type == openparen) {
-        int worked_if = parse_if(&t, a);
-        int worked_for = 0;
-        if (!worked_if) {
-          worked_for = parse_for(&t, a);
-        }
-        if (!worked_if && !worked_for) {
-          a->type = function_call;
-          a->value.string = t->string_rep;
-          a->value_type = string;
-
-          t = t->next;
-          t = t->next;
-          a->children = parse_function_call_arguments(&t);
-          assert(t->type == semicolon && "Expeceted semicolonn");
-          t = t->next;
-        }
-      } else {
-        // Check for builtin statement
-        assert(t->string_rep);
-        if (0 == strcmp(t->string_rep, "return")) {
-          a->type = return_statement;
-          a->next = NULL;
-          t = t->next;
-          a->children = parse_expression(&t);
-          t = t->next;
-        } else {
-          assert(0 && "Expected builtin statement");
-        }
-      }
-    }
+  cont_for_loop:
     a->next = malloc(sizeof(ast_t));
     a = a->next;
     a->type = noop;
