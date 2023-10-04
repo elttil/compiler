@@ -80,8 +80,9 @@ int builtin_functions(const char *function, ast_t *arguments) {
 void compile_binary_expression(ast_t *a, HashMap *m,
                                struct CompiledData **data_orig, FILE *fp) {
   calculate_asm_expression(a->right, m, data_orig, fp);
-  fprintf(fp, "mov rcx, rax\n");
+  fprintf(fp, "push rax\n");
   calculate_asm_expression(a->left, m, data_orig, fp);
+  fprintf(fp, "pop rcx\n");
   switch (a->operator) {
   case '+':
     fprintf(fp, "add rax, rcx\n");
@@ -462,12 +463,14 @@ ast_t *parse_primary(token_t **t_orig) {
 
 int precedence(token_t *t) {
   switch (t->type) {
-  case minus:
   case plus:
     return 0;
     break;
-  case star:
+  case minus:
     return 1;
+    break;
+  case star:
+    return 2;
     break;
   default:
     printf("Got type: ");
