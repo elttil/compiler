@@ -1,6 +1,7 @@
 typedef struct token_struct token_t;
 #ifndef LEXER_H
 #define LEXER_H
+#include <stdint.h>
 
 typedef enum {
   number,
@@ -25,6 +26,8 @@ typedef enum {
 struct token_struct {
   token_enum type;
   char *string_rep;
+  uint32_t col;
+  uint32_t line;
   token_t *next;
 };
 

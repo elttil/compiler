@@ -473,10 +473,12 @@ int precedence(token_t *t) {
     return 2;
     break;
   default:
-    printf("Got type: ");
-    token_printtype(t);
-    printf("\n");
-    assert(0);
+    printf("Got invalid characther %s at %u:%u, expected binaryoperator or "
+           "semicolon\n",
+           t->string_rep, t->line+1, t->col);
+    fflush(stdout);
+    for (;;)
+      ;
     break;
   }
 }
@@ -760,6 +762,8 @@ ast_t *lex2ast(token_t *t) {
   ast_t *a = r;
   a->next = NULL;
   for (; t && t->type != end;) {
+    if (!t || !t->next || !t->next->next)
+      break;
     // Check function
     if (t->type == alpha && t->next->type == alpha &&
         t->next->next->type == openparen) {
