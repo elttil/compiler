@@ -7,7 +7,7 @@ typedef struct ast_struct ast_t;
 #include <stdio.h>
 
 typedef union {
-  const char *string;
+  char *string;
   uint64_t number;
 } ast_value;
 
@@ -16,6 +16,7 @@ typedef enum { num, string } ast_value_type;
 typedef enum {
   if_statement,
   for_statement,
+  struct_definition,
   function,
   variable,
   variable_reference,
@@ -32,6 +33,7 @@ typedef enum {
 
 struct BuiltinType {
   const char *name;
+  ast_t *ast_struct;
   uint8_t byte_size;
 };
 

@@ -13,6 +13,7 @@ typedef enum {
   ampersand,
   star,
 
+  dot,
   comma,
   openparen,
   closeparen,

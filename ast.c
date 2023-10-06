@@ -9,27 +9,33 @@
 ast_t *parse_codeblock(token_t **t_orig);
 ast_t *parse_primary(token_t **t_orig);
 ast_t *parse_expression(token_t **t_orig);
-struct BuiltinType parse_type(const char *s, int *error);
+struct BuiltinType parse_type(token_t **t_orig, int *error);
 void calculate_asm_expression(ast_t *a, HashMap *m,
                               struct CompiledData **data_orig, FILE *fp);
 
 struct FunctionVariable {
   uint64_t offset;
   int is_argument;
+  struct BuiltinType type;
 };
+
+HashMap *global_definitions;
 
 const struct BuiltinType u64 = {
     .name = "u64",
+    .ast_struct = NULL,
     .byte_size = 8,
 };
 
 const struct BuiltinType u32 = {
     .name = "u32",
+    .ast_struct = NULL,
     .byte_size = 4,
 };
 
 const struct BuiltinType t_void = {
     .name = "u0",
+    .ast_struct = NULL,
     .byte_size = 0,
 };
 
@@ -124,9 +130,48 @@ void compile_function_call(ast_t *a, HashMap *m,
   fprintf(fp, "add rsp, %d\n", stack_to_recover);
 }
 
+void compile_struct(ast_t *a, FILE *fp) {
+  fprintf(fp, "section .data\n");
+  assert(string == a->value_type);
+  fprintf(fp, "%s:\n", a->value.string);
+  for (ast_t *c = a->children; c; c = c->next) {
+    struct BuiltinType type = c->statement_variable_type;
+    fprintf(fp, "times %d db 0\n", type.byte_size);
+  }
+  fprintf(fp, "section .text\n");
+  return;
+}
+
+uint64_t struct_find_member(ast_t *ast_struct, const char *member) {
+  uint64_t r = 0;
+  for (ast_t *c = ast_struct->children; c; c = c->next) {
+    if (0 == strcmp(c->value.string, member)) {
+      return r;
+    }
+    r += c->statement_variable_type.byte_size;
+  }
+  assert(0);
+  return 0;
+}
+
 void compile_variable(ast_t *a, HashMap *m, FILE *fp) {
   struct FunctionVariable *ptr = hashmap_get_entry(m, (char *)a->value.string);
-  assert(ptr && "Unknown variable");
+  if (!ptr) {
+    char *dot_ps = strchr(a->value.string, '.');
+    if (!dot_ps) {
+      assert(0 && "Unknown variable");
+    }
+    *dot_ps = '\0';
+    ptr = hashmap_get_entry(m, (char *)a->value.string);
+    assert(!ptr->is_argument && "FIXME");
+    assert(a->type != variable_reference && "FIXME");
+    assert(ptr && "Unknown variable");
+    char *member = dot_ps + 1;
+    uint64_t stack_location = ptr->offset;
+    uint64_t member_offset = struct_find_member(ptr->type.ast_struct, member);
+    fprintf(fp, "mov rax, [rbp-0x%lx]\n", stack_location + member_offset);
+    return;
+  }
   uint64_t stack_location = ptr->offset;
   if (ptr->is_argument) {
     if (a->type == variable_reference) {
@@ -246,25 +291,43 @@ void compile_return_statement(ast_t *a, HashMap *m,
 void compile_variable_declaration(ast_t *a, HashMap *m,
                                   struct CompiledData **data_orig, FILE *fp,
                                   size_t *stack_size, uint64_t *stack) {
-  *stack += 0x8;
+  *stack += a->statement_variable_type.byte_size;
   if (stack_size) {
-    *stack_size += 0x8;
+    *stack_size += a->statement_variable_type.byte_size;
   }
   struct FunctionVariable *h = malloc(sizeof(struct FunctionVariable));
-  *h = (struct FunctionVariable){.offset = *stack, .is_argument = 0};
+  *h = (struct FunctionVariable){
+      .offset = *stack, .is_argument = 0, .type = a->statement_variable_type};
   hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
   if (a->children) {
     calculate_asm_expression(a->children, m, data_orig, fp);
     fprintf(fp, "mov [rbp - 0x%lx], rax\n", *stack);
-  } else {
-    fprintf(fp, "%s %s;\n", type_to_string(a->statement_variable_type),
-            a->value.string);
   }
 }
 
 void compile_variable_assignment(ast_t *a, HashMap *m,
                                  struct CompiledData **data_orig, FILE *fp) {
   struct FunctionVariable *h = hashmap_get_entry(m, (char *)a->value.string);
+
+  if (!h) {
+    char *dot_ps = strchr(a->value.string, '.');
+    if (!dot_ps) {
+      assert(0 && "Unknown variable");
+    }
+    *dot_ps = '\0';
+    h = hashmap_get_entry(m, (char *)a->value.string);
+    assert(!h->is_argument && "FIXME");
+    assert(a->type != variable_reference && "FIXME");
+    assert(h && "Unknown variable");
+    char *member = dot_ps + 1;
+    uint64_t stack_location = h->offset;
+    uint64_t member_offset = struct_find_member(h->type.ast_struct, member);
+    assert(a->children);
+    calculate_asm_expression(a->children, m, data_orig, fp);
+    fprintf(fp, "mov [rbp - 0x%lx], rax\n", stack_location + member_offset);
+    return;
+  }
+
   assert(h && "Undefined variable.");
   uint64_t stack = h->offset;
   assert(a->children);
@@ -304,13 +367,17 @@ void compile_ast(ast_t *a, ast_t *parent, HashMap *m,
     for (ast_t *a = parent->args; a; a = a->next) {
       assert(a->type == function_argument);
       struct FunctionVariable *h = malloc(sizeof(struct FunctionVariable));
-      *h = (struct FunctionVariable){.offset = i, .is_argument = 1};
+      *h = (struct FunctionVariable){
+          .offset = i, .is_argument = 1, a->statement_variable_type};
       hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
       i += 0x8;
     }
   }
   for (; a; a = a->next) {
     switch (a->type) {
+    case struct_definition:
+      compile_struct(a, fp);
+      break;
     case function:
       compile_function(a, &data, fp);
       break;
@@ -389,7 +456,7 @@ ast_t *parse_function_arguments(token_t **t_orig) {
   ast_t *a = r;
   for (; t->type != closeparen;) {
     int error;
-    struct BuiltinType type = parse_type(t->string_rep, &error);
+    struct BuiltinType type = parse_type(&t, &error);
     assert(!error);
     a->type = function_argument;
     a->children = NULL;
@@ -445,7 +512,21 @@ ast_t *parse_primary(token_t **t_orig) {
         r->type = variable;
       }
       r->value_type = string;
-      r->value.string = t->string_rep;
+      if (t->next->type == dot) {
+        char *a = t->string_rep;
+        uint32_t l = strlen(t->string_rep);
+        t = t->next;
+        l++; // dot
+        t = t->next;
+        l += strlen(t->string_rep);
+        char *b = t->string_rep;
+        r->value.string = malloc(l + 1);
+        strcpy(r->value.string, a);
+        strcat(r->value.string, ".");
+        strcat(r->value.string, b);
+      } else {
+        r->value.string = t->string_rep;
+      }
       t = t->next;
     }
   } else if (t->type == lexer_string) {
@@ -475,7 +556,7 @@ int precedence(token_t *t) {
   default:
     printf("Got invalid characther %s at %u:%u, expected binaryoperator or "
            "semicolon\n",
-           t->string_rep, t->line+1, t->col);
+           t->string_rep, t->line + 1, t->col);
     fflush(stdout);
     for (;;)
       ;
@@ -557,10 +638,26 @@ ast_t *parse_expression(token_t **t_orig) {
   return parse_expression_1(t_orig, parse_primary(t_orig), 0);
 }
 
-struct BuiltinType parse_type(const char *s, int *error) {
+struct BuiltinType parse_type(token_t **t_orig, int *error) {
   *error = 0;
+  token_t *t = *t_orig;
+  if (0 == strcmp(t->string_rep, "struct")) {
+    t = t->next;
+    assert(t->type == alpha);
+    ast_t *a = hashmap_get_entry(global_definitions, t->string_rep);
+    struct BuiltinType r;
+    r.name = a->value.string;
+    r.ast_struct = a;
+    uint32_t size = 0;
+    for (ast_t *c = a->children; c; c = c->next) {
+      size += c->statement_variable_type.byte_size;
+    }
+    r.byte_size = size;
+    *t_orig = t;
+    return r;
+  }
   for (int i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
-    if (0 == strcmp(s, types[i].name)) {
+    if (0 == strcmp(t->string_rep, types[i].name)) {
       return types[i];
     }
   }
@@ -622,15 +719,69 @@ int parse_if(token_t **t_orig, ast_t *a) {
   return 1;
 }
 
+int parse_struct_definition(token_t **t_orig, ast_t *a) {
+  token_t *t = *t_orig;
+  if (t->type != alpha)
+    return 0;
+
+  if (0 != strcmp(t->string_rep, "struct"))
+    return 0;
+
+  a->type = struct_definition;
+
+  t = t->next;
+
+  assert(t->type == alpha);
+  a->value_type = string;
+  a->value.string = t->string_rep;
+  a->children = NULL;
+  t = t->next;
+  assert(t->type == openbracket);
+
+  t = t->next;
+  // Parse elements of struct
+  a->children = malloc(sizeof(ast_t));
+  ast_t *r = a->children;
+  ast_t *prev = NULL;
+  ast_t *temp = r;
+  for (; t->type != closebracket;) {
+    int error;
+    struct BuiltinType type = parse_type(&t, &error);
+    t = t->next;
+
+    assert(!error && "Unknown type");
+    temp->type = variable_declaration;
+    temp->children = NULL;
+    temp->statement_variable_type = type;
+    assert(t->type == alpha && "Expected name after type.");
+    temp->value_type = string;
+    temp->value.string = t->string_rep;
+    t = t->next;
+    assert(t->type == comma);
+    t = t->next;
+
+    prev = temp;
+    temp->next = malloc(sizeof(ast_t));
+    temp = temp->next;
+  }
+  if (prev) {
+    free(prev->next);
+    prev->next = NULL;
+  }
+  t = t->next;
+  hashmap_add_entry(global_definitions, (char *)a->value.string, a, NULL, 0);
+  *t_orig = t;
+  return 1;
+}
+
 int parse_variable_declaration(token_t **t_orig, ast_t *a) {
   token_t *t = *t_orig;
   if (t->type != alpha)
     return 0;
   int error;
-  struct BuiltinType type = parse_type(t->string_rep, &error);
-  if (error) {
+  struct BuiltinType type = parse_type(&t, &error);
+  if (error)
     return 0;
-  }
   // Implies we are parsing <type> <something>
   // So it should be a variable declaration.
   a->type = variable_declaration;
@@ -664,7 +815,20 @@ int parse_variable_assignment(token_t **t_orig, ast_t *a) {
   if (t->type != alpha) {
     return 0;
   }
-  if (t->next->type != equals) {
+
+  if (t->next->type == dot && t->next->next->type == alpha) {
+    char *s1 = t->string_rep;
+    t = t->next;
+    t = t->next;
+    char *s2 = t->string_rep;
+    uint32_t l = strlen(s1) + 1 + strlen(s2);
+    a->value.string = malloc(l + 1);
+    strcpy(a->value.string, s1);
+    strcat(a->value.string, ".");
+    strcat(a->value.string, s2);
+  } else if (t->next->type == equals) {
+    a->value.string = t->string_rep; // alpha
+  } else {
     return 0;
   }
 
@@ -675,7 +839,6 @@ int parse_variable_assignment(token_t **t_orig, ast_t *a) {
   else
     a->type = variable_assignment;
   a->value_type = string;
-  a->value.string = t->string_rep; // alpha
 
   t = t->next; // equals
   t = t->next; // something
@@ -731,16 +894,22 @@ ast_t *parse_codeblock(token_t **t_orig) {
   ast_t *r = malloc(sizeof(ast_t));
   ast_t *a = r;
   for (; t->type != closebracket;) {
-    if (parse_variable_assignment(&t, a))
+    // u64 x; OR u64 x = 5;
+    if (parse_variable_declaration(&t, a))
       goto cont_for_loop;
-    else if (parse_variable_declaration(&t, a))
+    // x = 5;
+    else if (parse_variable_assignment(&t, a))
       goto cont_for_loop;
+    // if(condition) {}
     else if (parse_if(&t, a))
       goto cont_for_loop;
+    // for(condition) {}
     else if (parse_for(&t, a))
       goto cont_for_loop;
+    // foo(); OR foo(arg1, arg2, ...);
     else if (parse_function_call(&t, a))
       goto cont_for_loop;
+    // asm(); OR return x; etc
     else if (parse_builtin_statement(&t, a))
       goto cont_for_loop;
     else
@@ -758,19 +927,21 @@ ast_t *parse_codeblock(token_t **t_orig) {
 }
 
 ast_t *lex2ast(token_t *t) {
+  global_definitions = hashmap_create(20);
   ast_t *r = malloc(sizeof(ast_t));
   ast_t *a = r;
   a->next = NULL;
   for (; t && t->type != end;) {
     if (!t || !t->next || !t->next->next)
       break;
-    // Check function
-    if (t->type == alpha && t->next->type == alpha &&
-        t->next->next->type == openparen) {
+    if (parse_struct_definition(&t, a)) {
+
+    } else if (t->type == alpha && t->next->type == alpha &&
+               t->next->next->type == openparen) { // Check function
       a->type = function;
 
       int error;
-      a->statement_variable_type = parse_type(t->string_rep, &error);
+      a->statement_variable_type = parse_type(&t, &error);
       assert(!error);
 
       t = t->next;

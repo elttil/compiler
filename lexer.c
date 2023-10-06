@@ -83,6 +83,9 @@ int tokenize_char(struct Iterator *iter, token_t *t) {
   case '-':
     t->type = minus;
     break;
+  case '.':
+    t->type = dot;
+    break;
   case '\0':
     t->type = end;
     break;
@@ -189,8 +192,8 @@ void create_token(struct Iterator *iter, token_t *t) {
     }
     skip_whitespace(iter);
   }
-  if(iter->is_eof)
-	  return;
+  if (iter->is_eof)
+    return;
   if (tokenize_alpha(iter, t))
     return;
   else if (tokenize_string(iter, t))
