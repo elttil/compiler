@@ -47,19 +47,137 @@ void skip_whitespace(struct Iterator *i) {
 
 int lexer_isalpha(char c) { return isalpha(c) || c == '_'; }
 
-void parse_token(struct Iterator *iter, token_t *t) {
-#define PARSE_CHAR_TO_TOKEN(_c, _t)                                            \
-  if (_c == peek(iter, 0)) {                                                   \
-    (void)next(iter);                                                          \
-    t->type = _t;                                                              \
-    t->next = NULL;                                                            \
-    t->string_rep = calloc(sizeof(char), 2);                                   \
-    t->string_rep[0] = _c;                                                     \
-    return;                                                                    \
+int tokenize_char(struct Iterator *iter, token_t *t) {
+  char c;
+  switch ((c = peek(iter, 0))) {
+  case '(':
+    t->type = openparen;
+    break;
+  case ')':
+    t->type = closeparen;
+    break;
+  case '{':
+    t->type = openbracket;
+    break;
+  case '}':
+    t->type = closebracket;
+    break;
+  case '=':
+    t->type = equals;
+    break;
+  case ';':
+    t->type = semicolon;
+    break;
+  case ',':
+    t->type = comma;
+    break;
+  case '&':
+    t->type = ampersand;
+    break;
+  case '*':
+    t->type = star;
+    break;
+  case '+':
+    t->type = plus;
+    break;
+  case '-':
+    t->type = minus;
+    break;
+  case '\0':
+    t->type = end;
+    break;
+  default:
+    return 0;
+    break;
   }
+  (void)next(iter);
+  t->next = NULL;
+  t->string_rep = calloc(sizeof(char), 2);
+  t->string_rep[0] = c;
+  return 1;
+}
 
+int tokenize_number(struct Iterator *iter, token_t *t) {
+  if (!isdigit(peek(iter, 0)))
+    return 0;
+  t->type = number;
+  t->next = NULL;
+  t->string_rep = calloc(sizeof(char), 256);
+  int i;
+  char c;
+  for (i = 0; (c = peek(iter, 0)); i++) {
+    if (!isdigit(c))
+      break;
+    (void)next(iter);
+    t->string_rep[i] = c;
+  }
+  t->string_rep[i] = '\0';
+  return 1;
+}
+
+int tokenize_string(struct Iterator *iter, token_t *t) {
+  if ('"' != peek(iter, 0))
+    return 0;
+  (void)next(iter);
+  t->type = lexer_string;
+  t->next = NULL;
+  t->string_rep = calloc(sizeof(char), 256);
+  int i;
+  char c;
+  for (i = 0; (c = peek(iter, 0)); i++) {
+    if ('"' == c)
+      break;
+    (void)next(iter);
+    if ('\\' == c) {
+      char b = next(iter);
+      assert(!iter->is_eof);
+      switch (b) {
+      case 'n':
+        c = '\n';
+        break;
+      case 't':
+        c = '\t';
+        break;
+      case '\\':
+        c = '\\';
+        break;
+      case '0':
+        c = '\0';
+        break;
+      default:
+        assert(0);
+        break;
+      }
+    }
+    t->string_rep[i] = c;
+  }
+  t->string_rep[i] = '\0';
+  (void)next(iter);
+  return 1;
+}
+
+int tokenize_alpha(struct Iterator *iter, token_t *t) {
+  if (!lexer_isalpha(peek(iter, 0)))
+    return 0;
+
+  t->type = alpha;
+  t->next = NULL;
+  t->string_rep = calloc(sizeof(char), 256);
+  int i;
+  char c;
+  for (i = 0; (c = peek(iter, 0)); i++, next(iter)) {
+    if (!lexer_isalpha(c) && !isdigit(c))
+      break;
+    t->string_rep[i] = c;
+  }
+  t->string_rep[i] = '\0';
+  return 1;
+}
+
+void create_token(struct Iterator *iter, token_t *t) {
   skip_whitespace(iter);
-  if ('/' == peek(iter, 0) && '/' == peek(iter, 1)) {
+  // Skip comments
+  for (; '/' == peek(iter, 0) && '/' == peek(iter, 1);) {
     (void)next(iter);
     (void)next(iter);
     for (;;) {
@@ -69,89 +187,18 @@ void parse_token(struct Iterator *iter, token_t *t) {
       if ('\n' == c)
         break;
     }
-    // Recursion
-    parse_token(iter, t);
-    return;
+    skip_whitespace(iter);
   }
-  if (lexer_isalpha(peek(iter, 0))) {
-    t->type = alpha;
-    t->next = NULL;
-    t->string_rep = calloc(sizeof(char), 256);
-    int i;
-    char c;
-    for (i = 0; (c = peek(iter, 0)); i++, next(iter)) {
-      if (!lexer_isalpha(c) && !isdigit(c))
-        break;
-      t->string_rep[i] = c;
-    }
-    t->string_rep[i] = '\0';
+  if(iter->is_eof)
+	  return;
+  if (tokenize_alpha(iter, t))
     return;
-  }
-  if ('"' == peek(iter, 0)) {
-    (void)next(iter);
-    t->type = lexer_string;
-    t->next = NULL;
-    t->string_rep = calloc(sizeof(char), 256);
-    int i;
-    char c;
-    for (i = 0; (c = peek(iter, 0)); i++) {
-      if ('"' == c)
-        break;
-      (void)next(iter);
-      if ('\\' == c) {
-        char b = next(iter);
-        assert(!iter->is_eof);
-        switch (b) {
-        case 'n':
-          c = '\n';
-          break;
-        case 't':
-          c = '\t';
-          break;
-        case '\\':
-          c = '\\';
-          break;
-        case '0':
-          c = '\0';
-          break;
-        default:
-          assert(0);
-          break;
-        }
-      }
-      t->string_rep[i] = c;
-    }
-    t->string_rep[i] = '\0';
-    (void)next(iter);
+  else if (tokenize_string(iter, t))
     return;
-  }
-  PARSE_CHAR_TO_TOKEN('(', openparen);
-  PARSE_CHAR_TO_TOKEN(')', closeparen);
-  PARSE_CHAR_TO_TOKEN('{', openbracket);
-  PARSE_CHAR_TO_TOKEN('}', closebracket);
-  PARSE_CHAR_TO_TOKEN('=', equals);
-  PARSE_CHAR_TO_TOKEN(';', semicolon);
-  PARSE_CHAR_TO_TOKEN(',', comma);
-  PARSE_CHAR_TO_TOKEN('&', ampersand);
-  PARSE_CHAR_TO_TOKEN('*', star);
-  PARSE_CHAR_TO_TOKEN('+', plus);
-  PARSE_CHAR_TO_TOKEN('-', minus);
-  PARSE_CHAR_TO_TOKEN('\0', end);
-  if (isdigit(peek(iter, 0))) {
-    t->type = number;
-    t->next = NULL;
-    t->string_rep = calloc(sizeof(char), 256);
-    int i;
-    char c;
-    for (i = 0; (c = peek(iter, 0)); i++) {
-      if (!isdigit(c))
-        break;
-      (void)next(iter);
-      t->string_rep[i] = c;
-    }
-    t->string_rep[i] = '\0';
+  else if (tokenize_char(iter, t))
     return;
-  }
+  else if (tokenize_number(iter, t))
+    return;
   printf("Rest: %s\n", iter->ptr);
   assert(0 && "Unknown token");
 }
@@ -168,7 +215,7 @@ token_t *lexer(const char *s) {
       .is_eof = 0,
   };
   for (;;) {
-    parse_token(&i, t);
+    create_token(&i, t);
     t->col = i.last_col;
     t->line = i.last_line;
     if (i.is_eof) {
