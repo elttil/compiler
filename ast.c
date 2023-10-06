@@ -54,27 +54,6 @@ void gen_rand_string(char *s, int l) {
 
 const char *type_to_string(struct BuiltinType t) { return t.name; }
 
-void print_expression(ast_t *a) {
-  if (a->type == binaryexpression) {
-    print_expression(a->left);
-    printf(" %c ", a->operator);
-    print_expression(a->right);
-  } else if (a->type == literal) {
-    if (a->value_type == (ast_value_type)number) {
-      printf("%lu", a->value.number);
-    } else if (a->value_type == string) {
-      printf("\"%s\"", a->value.string);
-    } else {
-      assert(0 && "unimplemented");
-    }
-  } else if (a->type == function_call) {
-    assert(a->value_type == string);
-    printf("%s()", a->value.string);
-  } else {
-    assert(0);
-  }
-}
-
 int builtin_functions(const char *function, ast_t *arguments) {
   if (0 == strcmp(function, "asm")) {
     printf("%s", arguments->value.string);
