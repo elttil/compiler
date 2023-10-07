@@ -13,6 +13,8 @@ struct BuiltinType parse_type(token_t **t_orig, int *error);
 void calculate_asm_expression(ast_t *a, HashMap *m,
                               struct CompiledData **data_orig, FILE *fp);
 
+#define ARCH_POINTER_SIZE 8
+
 struct FunctionVariable {
   uint64_t offset;
   int is_argument;
@@ -22,20 +24,20 @@ struct FunctionVariable {
 HashMap *global_definitions;
 
 const struct BuiltinType u64 = {
+    .variant = builtin,
     .name = "u64",
-    .ast_struct = NULL,
     .byte_size = 8,
 };
 
 const struct BuiltinType u32 = {
+    .variant = builtin,
     .name = "u32",
-    .ast_struct = NULL,
     .byte_size = 4,
 };
 
 const struct BuiltinType t_void = {
+    .variant = builtin,
     .name = "u0",
-    .ast_struct = NULL,
     .byte_size = 0,
 };
 
@@ -52,7 +54,10 @@ void gen_rand_string(char *s, int l) {
   s[i] = '\0';
 }
 
-const char *type_to_string(struct BuiltinType t) { return t.name; }
+const char *type_to_string(struct BuiltinType t) {
+  assert(t.variant == builtin);
+  return t.name;
+}
 
 int builtin_functions(const char *function, ast_t *arguments) {
   if (0 == strcmp(function, "asm")) {
@@ -135,6 +140,7 @@ uint64_t struct_find_member(ast_t *ast_struct, const char *member) {
 
 void compile_variable(ast_t *a, HashMap *m, FILE *fp) {
   struct FunctionVariable *ptr = hashmap_get_entry(m, (char *)a->value.string);
+  // Check if we are pointing into a struct
   if (!ptr) {
     char *dot_ps = strchr(a->value.string, '.');
     if (!dot_ps) {
@@ -143,11 +149,17 @@ void compile_variable(ast_t *a, HashMap *m, FILE *fp) {
     *dot_ps = '\0';
     ptr = hashmap_get_entry(m, (char *)a->value.string);
     assert(!ptr->is_argument && "FIXME");
-    assert(a->type != variable_reference && "FIXME");
     assert(ptr && "Unknown variable");
     char *member = dot_ps + 1;
     uint64_t stack_location = ptr->offset;
     uint64_t member_offset = struct_find_member(ptr->type.ast_struct, member);
+    if (a->type == variable_reference) {
+      member_offset = struct_find_member(ptr->type.ast_struct, member);
+
+      fprintf(fp, "mov rax, rbp\n");
+      fprintf(fp, "sub rax, 0x%lx\n", stack_location + member_offset);
+      return;
+    }
     fprintf(fp, "mov rax, [rbp-0x%lx]\n", stack_location + member_offset);
     return;
   }
@@ -288,6 +300,7 @@ void compile_variable_assignment(ast_t *a, HashMap *m,
                                  struct CompiledData **data_orig, FILE *fp) {
   struct FunctionVariable *h = hashmap_get_entry(m, (char *)a->value.string);
 
+  // Check if we are pointing into a struct
   if (!h) {
     char *dot_ps = strchr(a->value.string, '.');
     if (!dot_ps) {
@@ -323,6 +336,7 @@ void compile_variable_reference_assignment(ast_t *a, HashMap *m,
                                            FILE *fp) {
   struct FunctionVariable *h = hashmap_get_entry(m, (char *)a->value.string);
   assert(h && "Undefined variable.");
+  assert(h->type.variant == pointer && "Attempting to dereference non pointer");
   uint64_t stack = h->offset;
   assert(a->children);
   calculate_asm_expression(a->children, m, data_orig, fp);
@@ -625,6 +639,7 @@ struct BuiltinType parse_type(token_t **t_orig, int *error) {
     assert(t->type == alpha);
     ast_t *a = hashmap_get_entry(global_definitions, t->string_rep);
     struct BuiltinType r;
+    r.variant = structure;
     r.name = a->value.string;
     r.ast_struct = a;
     uint32_t size = 0;
@@ -765,8 +780,16 @@ int parse_variable_declaration(token_t **t_orig, ast_t *a) {
   // So it should be a variable declaration.
   a->type = variable_declaration;
   a->children = NULL;
-  a->statement_variable_type = type;
   t = t->next;
+  if (t->type == star) {
+    struct BuiltinType *buf = malloc(sizeof(struct BuiltinType));
+    memcpy(buf, &type, sizeof(struct BuiltinType));
+    type.variant = pointer;
+    type.ptr = buf;
+    type.byte_size = ARCH_POINTER_SIZE;
+    t = t->next;
+  }
+  a->statement_variable_type = type;
   assert(t->type == alpha && "Expected name after type.");
   a->value_type = string;
   a->value.string = t->string_rep;

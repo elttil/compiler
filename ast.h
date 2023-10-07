@@ -31,9 +31,15 @@ typedef enum {
   noop,
 } ast_enum;
 
+typedef enum { builtin, structure, pointer } type_variant;
+
 struct BuiltinType {
-  const char *name;
-  ast_t *ast_struct;
+  type_variant variant;
+    const char *name;
+  union {
+    ast_t *ast_struct;
+    struct BuiltinType *ptr;
+  };
   uint8_t byte_size;
 };
 
