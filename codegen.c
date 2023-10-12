@@ -7,6 +7,20 @@
 void calculate_asm_expression(ast_t *a, HashMap *m,
                               struct CompiledData **data_orig, FILE *fp);
 
+static const char *matching_register_prefix(uint8_t byte_size) {
+  switch (byte_size) {
+  case 1:
+    return ""; // 8 bits
+  case 4:
+    return "e"; // 32 bits
+  case 8:
+    return "r"; // 64 bits
+  default:
+    assert(0);
+    break;
+  }
+}
+
 void gen_rand_string(char *s, int l) {
   int i = 0;
   for (; i < l - 1; i++)
@@ -126,7 +140,9 @@ void compile_variable(ast_t *a, HashMap *m, FILE *fp) {
       fprintf(fp, "sub rax, 0x%lx\n", stack_location + member_offset);
       return;
     }
-    fprintf(fp, "mov rax, [rbp-0x%lx]\n", stack_location + member_offset);
+    fprintf(fp, "mov %sax, [rbp-0x%lx]\n",
+            matching_register_prefix(ptr->type.byte_size),
+            stack_location + member_offset);
     return;
   }
   uint64_t stack_location = ptr->offset;
@@ -136,7 +152,8 @@ void compile_variable(ast_t *a, HashMap *m, FILE *fp) {
       fprintf(fp, "add rax, 0x%lx\n", stack_location + 0x8);
       return;
     }
-    fprintf(fp, "mov rax, [rbp+0x%lx]\n", stack_location + 0x8);
+    fprintf(fp, "mov %sax, [rbp+0x%lx]\n",
+            matching_register_prefix(ptr->type.byte_size), stack_location + 0x8);
     return;
   }
   if (a->type == variable_reference) {
@@ -144,7 +161,8 @@ void compile_variable(ast_t *a, HashMap *m, FILE *fp) {
     fprintf(fp, "sub rax, 0x%lx\n", stack_location);
     return;
   }
-  fprintf(fp, "mov rax, [rbp-0x%lx]\n", stack_location);
+  fprintf(fp, "mov %sax, [rbp-0x%lx]\n",
+          matching_register_prefix(ptr->type.byte_size), stack_location);
 }
 
 void compile_literal(ast_t *a, HashMap *m, struct CompiledData **data_orig,
@@ -258,7 +276,8 @@ void compile_variable_declaration(ast_t *a, HashMap *m,
   hashmap_add_entry(m, (char *)a->value.string, h, NULL, 0);
   if (a->children) {
     calculate_asm_expression(a->children, m, data_orig, fp);
-    fprintf(fp, "mov [rbp - 0x%lx], rax\n", *stack);
+    fprintf(fp, "mov [rbp - 0x%lx], %sax\n", *stack,
+            matching_register_prefix(h->type.byte_size));
   }
 }
 
@@ -282,7 +301,8 @@ void compile_variable_assignment(ast_t *a, HashMap *m,
     uint64_t member_offset = struct_find_member(h->type.ast_struct, member);
     assert(a->children);
     calculate_asm_expression(a->children, m, data_orig, fp);
-    fprintf(fp, "mov [rbp - 0x%lx], rax\n", stack_location + member_offset);
+    fprintf(fp, "mov [rbp - 0x%lx], %sax\n", stack_location + member_offset,
+            matching_register_prefix(h->type.byte_size));
     return;
   }
 
@@ -291,9 +311,11 @@ void compile_variable_assignment(ast_t *a, HashMap *m,
   assert(a->children);
   calculate_asm_expression(a->children, m, data_orig, fp);
   if (!h->is_argument) {
-    fprintf(fp, "mov [rbp - 0x%lx], rax\n", stack);
+    fprintf(fp, "mov [rbp - 0x%lx], %sax\n", stack,
+            matching_register_prefix(h->type.byte_size));
   } else {
-    fprintf(fp, "mov [rbp + 0x%lx], rax\n", stack + 0x8);
+    fprintf(fp, "mov [rbp + 0x%lx], %sax\n", stack + 0x8,
+            matching_register_prefix(h->type.byte_size));
   }
 }
 
