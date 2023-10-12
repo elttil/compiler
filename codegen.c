@@ -38,6 +38,17 @@ void compile_binary_expression(ast_t *a, HashMap *m,
   case '*':
     fprintf(fp, "mul rcx\n");
     break;
+  case '=': {
+    char label[10];
+    gen_rand_string(label, 10);
+    fprintf(fp, "mov rdx, 0\n");
+    fprintf(fp, "cmp rax, rcx\n");
+    fprintf(fp, "jne %s\n", label);
+    fprintf(fp, "mov rdx, 1\n");
+    fprintf(fp, "%s:\n", label);
+    fprintf(fp, "mov rax, rdx\n");
+    break;
+  }
   default:
     assert(0);
     break;

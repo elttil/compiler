@@ -118,6 +118,18 @@ int tokenize_number(struct Iterator *iter, token_t *t) {
   return 1;
 }
 
+int tokenize_compare(struct Iterator *iter, token_t *t) {
+  if (peek(iter, 0) != '=' || peek(iter, 1) != '=')
+    return 0;
+  t->type = equal;
+  t->next = NULL;
+  t->string_rep = malloc(sizeof(char[3]));
+  strcpy(t->string_rep, "==");
+  (void)next(iter);
+  (void)next(iter);
+  return 1;
+}
+
 int tokenize_string(struct Iterator *iter, token_t *t) {
   if ('"' != peek(iter, 0))
     return 0;
@@ -197,6 +209,8 @@ void create_token(struct Iterator *iter, token_t *t) {
   if (tokenize_alpha(iter, t))
     return;
   else if (tokenize_string(iter, t))
+    return;
+  else if (tokenize_compare(iter, t))
     return;
   else if (tokenize_char(iter, t))
     return;

@@ -187,6 +187,9 @@ int precedence(token_t *t) {
   case star:
     return 2;
     break;
+  case equal:
+    return 3;
+    break;
   default:
     printf("Got invalid characther %s at %u:%u, expected binaryoperator or "
            "semicolon\n",
@@ -206,6 +209,8 @@ char type_to_operator_char(token_enum t) {
     return '-';
   case star:
     return '*';
+  case equal:
+    return '=';
   default:
     assert(0);
     break;
