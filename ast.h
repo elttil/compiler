@@ -35,12 +35,18 @@ typedef enum { builtin, structure, pointer } type_variant;
 
 struct BuiltinType {
   type_variant variant;
-    const char *name;
+  const char *name;
   union {
     ast_t *ast_struct;
     struct BuiltinType *ptr;
   };
   uint8_t byte_size;
+};
+
+struct FunctionVariable {
+  uint64_t offset;
+  int is_argument;
+  struct BuiltinType type;
 };
 
 struct CompiledData {

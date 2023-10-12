@@ -1,5 +1,5 @@
 CFLAGS=-g -I. -Wall -pedantic -Werror
-OBJ=main.o lexer.o ast.o hashmap/hashmap.o
+OBJ=main.o lexer.o ast.o codegen.o hashmap/hashmap.o
 all: compiler
 
 %.o: %.c

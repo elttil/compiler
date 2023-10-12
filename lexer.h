@@ -6,13 +6,11 @@ typedef struct token_struct token_t;
 typedef enum {
   number,
   alpha,
-
   plus,
   minus,
   lexer_string,
   ampersand,
   star,
-
   dot,
   comma,
   openparen,
@@ -33,5 +31,4 @@ struct token_struct {
 };
 
 token_t *lexer(const char *s);
-void token_printtype(token_t *t);
 #endif // LEXER_H
